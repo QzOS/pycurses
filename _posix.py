@@ -6,9 +6,10 @@ import struct
 import sys
 import time
 import termios
+import weakref
 
 
-_resize_states = set()
+_resize_states = weakref.WeakSet()
 _prev_sigwinch_handler = None
 _sigwinch_installed = False
 
@@ -45,18 +46,58 @@ def _uninstall_sigwinch_handler() -> None:
     _sigwinch_installed = False
 
 
+def _is_tty_fd(fd: int) -> bool:
+    try:
+        return os.isatty(fd)
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _get_winsize_fd(fd: int):
+    try:
+        buf = fcntl.ioctl(fd, termios.TIOCGWINSZ, b"\x00" * 8)
+        rows, cols, _xp, _yp = struct.unpack("HHHH", buf)
+        if rows > 0 and cols > 0:
+            return rows, cols
+    except (OSError, ValueError, TypeError):
+        pass
+
+    try:
+        sz = os.get_terminal_size(fd)
+        if sz.lines > 0 and sz.columns > 0:
+            return sz.lines, sz.columns
+    except (OSError, ValueError, TypeError):
+        pass
+
+    return None
+
+
 def init(state) -> int:
-    state.in_fd = sys.stdin.fileno()
-    state.out_fd = sys.stdout.fileno()
-    state.term.out_fd = state.out_fd
+    try:
+        state.in_fd = sys.stdin.fileno()
+        state.out_fd = sys.stdout.fileno()
+    except (OSError, ValueError):
+        return -1
 
-    state.orig_term = termios.tcgetattr(state.in_fd)
-    state.cur_term = termios.tcgetattr(state.in_fd)
+    try:
+        state.term.out_fd = state.out_fd
+    except AttributeError:
+        pass
 
-    state.cur_term[3] &= ~(termios.ICANON | termios.ECHO)
-    state.cur_term[6][termios.VMIN] = 1
-    state.cur_term[6][termios.VTIME] = 0
-    termios.tcsetattr(state.in_fd, termios.TCSAFLUSH, state.cur_term)
+    if not _is_tty_fd(state.in_fd):
+        return -1
+
+    try:
+        state.orig_term = termios.tcgetattr(state.in_fd)
+        state.cur_term = termios.tcgetattr(state.in_fd)
+        state.cur_term[3] &= ~(termios.ICANON | termios.ECHO)
+        state.cur_term[6][termios.VMIN] = 1
+        state.cur_term[6][termios.VTIME] = 0
+        termios.tcsetattr(state.in_fd, termios.TCSAFLUSH, state.cur_term)
+    except (termios.error, OSError, ValueError):
+        state.orig_term = None
+        state.cur_term = None
+        return -1
 
     state.resize_pending = False
     state._last_size = get_size(state)
@@ -80,10 +121,13 @@ def end(state) -> int:
         if not _resize_states:
             _uninstall_sigwinch_handler()
 
-    if state.orig_term is not None:
+    orig_term = getattr(state, "orig_term", None)
+    in_fd = getattr(state, "in_fd", None)
+
+    if orig_term is not None and in_fd is not None:
         try:
-            termios.tcsetattr(state.in_fd, termios.TCSAFLUSH, state.orig_term)
-        except (OSError, ValueError):
+            termios.tcsetattr(in_fd, termios.TCSAFLUSH, orig_term)
+        except (termios.error, OSError, ValueError):
             pass
 
     state.orig_term = None
@@ -98,19 +142,19 @@ def end(state) -> int:
 
 
 def get_size(state) -> tuple[int, int]:
-    try:
-        buf = fcntl.ioctl(state.out_fd, termios.TIOCGWINSZ, b"\x00" * 8)
-        rows, cols, _xp, _yp = struct.unpack("HHHH", buf)
-        if rows > 0 and cols > 0:
-            return rows, cols
-    except (OSError, ValueError):
-        pass
-    try:
-        sz = os.get_terminal_size(state.out_fd)
-        if sz.lines > 0 and sz.columns > 0:
-            return sz.lines, sz.columns
-    except (OSError, ValueError):
-        pass
+    out_fd = getattr(state, "out_fd", None)
+    in_fd = getattr(state, "in_fd", None)
+
+    if out_fd is not None:
+        size = _get_winsize_fd(out_fd)
+        if size is not None:
+            return size
+
+    if in_fd is not None and in_fd != out_fd:
+        size = _get_winsize_fd(in_fd)
+        if size is not None:
+            return size
+
     return 24, 80
 
 
@@ -178,10 +222,13 @@ def clear_resize(state) -> None:
 
 
 def apply_term(state) -> int:
+    if state.cur_term is None:
+        return -1
+
     try:
         termios.tcsetattr(state.in_fd, termios.TCSAFLUSH, state.cur_term)
         return 0
-    except (OSError, ValueError):
+    except (termios.error, OSError, ValueError):
         return -1
 
 
@@ -237,5 +284,5 @@ def _on_sigwinch(signum, frame) -> None:
     for state in tuple(_resize_states):
         try:
             _mark_resize_pending(state)
-        except (OSError, ValueError):
+        except Exception:
             pass
