@@ -43,10 +43,6 @@ _LEFT_ALT_PRESSED = 0x0002
 _LEFT_CTRL_PRESSED = 0x0008
 _SHIFT_PRESSED = 0x0010
 
-_resize_lock = threading.Lock()
-_input_lock = threading.Lock()
-
-
 _RIGHT_CTRL_PRESSED = 0x0004
 _VK_BACK = 0x08
 _VK_TAB = 0x09
@@ -255,14 +251,16 @@ def _reset_state_fields(state) -> None:
     state._win_hout = None
     state._last_size = (24, 80)
     state._input_bytes = deque()
+    state._resize_lock = threading.Lock()
+    state._input_lock = threading.Lock()
     state.in_fd = 0
     state.out_fd = 1
     state.pushback_byte = None
 
-    with _resize_lock:
+    with state._resize_lock:
         state.resize_pending = False
 
-    with _input_lock:
+    with state._input_lock:
         state._input_bytes.clear()
 
 
@@ -405,7 +403,7 @@ def input_pending(state, timeout_ms: int) -> bool:
     if _peek_input_byte(state):
         return True
 
-    with _resize_lock:
+    with state._resize_lock:
         if state.resize_pending:
             # Mirror POSIX behavior: once a resize is pending, do not block
             # here waiting for keyboard input. Let the caller observe it via
@@ -426,7 +424,7 @@ def input_pending(state, timeout_ms: int) -> bool:
     if _read_console_events(state, block=False) < 0:
         return False
 
-    with _resize_lock:
+    with state._resize_lock:
         if state.resize_pending:
             return False
 
@@ -435,7 +433,7 @@ def input_pending(state, timeout_ms: int) -> bool:
 
 def poll_resize(state) -> bool:
     """Check if a resize event occurred."""
-    with _resize_lock:
+    with state._resize_lock:
         if state.resize_pending:
             return True
 
@@ -448,13 +446,13 @@ def poll_resize(state) -> bool:
     if _read_console_events(state, block=False) < 0:
         return False
 
-    with _resize_lock:
+    with state._resize_lock:
         return bool(state.resize_pending)
 
 
 def clear_resize(state) -> None:
     """Clear the resize pending flag."""
-    with _resize_lock:
+    with state._resize_lock:
         state.resize_pending = False
 
 
@@ -543,12 +541,12 @@ def noecho(state) -> int:
 
 
 def _peek_input_byte(state) -> bool:
-    with _input_lock:
+    with state._input_lock:
         return bool(getattr(state, "_input_bytes", None))
 
 
 def _pop_input_byte(state):
-    with _input_lock:
+    with state._input_lock:
         buf = getattr(state, "_input_bytes", None)
         if buf:
             return buf.popleft()
@@ -558,7 +556,7 @@ def _pop_input_byte(state):
 def _push_input_bytes(state, data: bytes) -> None:
     if not data:
         return
-    with _input_lock:
+    with state._input_lock:
         buf = getattr(state, "_input_bytes", None)
         if buf is not None:
             buf.extend(data)
@@ -612,7 +610,7 @@ def _read_console_events(state, block: bool) -> int:
                 _handle_console_record(state, records[i])
 
             have_input = _peek_input_byte(state)
-            with _resize_lock:
+            with state._resize_lock:
                 resize_pending = bool(state.resize_pending)
 
             if block:
@@ -647,7 +645,7 @@ def _handle_console_record(state, rec) -> None:
         if current_size[0] > 0 and current_size[1] > 0:
             if current_size != getattr(state, "_last_size", None):
                 state._last_size = current_size
-                with _resize_lock:
+                with state._resize_lock:
                     state.resize_pending = True
         return
 
