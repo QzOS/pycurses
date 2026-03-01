@@ -29,7 +29,9 @@ class LCWin:
     root: Optional["LCWin"] = None
     pary: int = 0
     parx: int = 0
+    alive: bool = True
     owns_storage: bool = True
+    children: list["LCWin"] = field(default_factory=list)
     lines: list[LCRow] = field(default_factory=list)
 
 
@@ -138,6 +140,8 @@ def _mark_window_dirty(win: Optional[LCWin], y: int, start: int, end: int) -> No
     ce = end
 
     while cur is not None:
+        if not cur.alive:
+            return
         if cy < 0 or cy >= cur.maxy:
             return
 
@@ -156,6 +160,8 @@ def _mark_window_dirty(win: Optional[LCWin], y: int, start: int, end: int) -> No
 
 def _set_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
     if win is None:
+        return
+    if not win.alive:
         return
     if y < 0 or y >= win.maxy or x < 0 or x >= win.maxx:
         return
@@ -259,7 +265,9 @@ def lc_new(nlines: int, ncols: int, begin_y: int, begin_x: int) -> Optional[LCWi
         root=None,
         pary=0,
         parx=0,
+        alive=True,
         owns_storage=True,
+        children=[],
         lines=lines
     )
 
@@ -272,6 +280,8 @@ def lc_subwin(
     begin_x: int,
 ) -> Optional[LCWin]:
     if parent is None:
+        return None
+    if not parent.alive:
         return None
     if nlines <= 0 or ncols <= 0:
         return None
@@ -297,7 +307,7 @@ def lc_subwin(
         lines.append(row)
 
     root = parent.root if parent.root is not None else parent
-    return LCWin(
+    sub = LCWin(
         maxy=nlines,
         maxx=ncols,
         begy=parent.begy + begin_y,
@@ -308,15 +318,45 @@ def lc_subwin(
         root=root,
         pary=begin_y,
         parx=begin_x,
+        alive=True,
         owns_storage=False,
+        children=[],
         lines=lines,
     )
+    parent.children.append(sub)
+    return sub
+
+
+def _detach_from_parent(win: LCWin) -> None:
+    parent = win.parent
+    if parent is None:
+        return
+    if win in parent.children:
+        parent.children.remove(win)
+    win.parent = None
+
+
+def _free_recursive(win: LCWin) -> None:
+    while win.children:
+        child = win.children[-1]
+        _free_recursive(child)
+
+    _detach_from_parent(win)
+    win.lines.clear()
+    win.alive = False
+    win.root = None
+    win.pary = 0
+    win.parx = 0
+    win.cury = 0
+    win.curx = 0
 
 
 def lc_free(win: Optional[LCWin]) -> int:
     if win is None:
         return -1
-    win.lines.clear()
+    if not win.alive:
+        return -1
+    _free_recursive(win)
     return 0
 
 
@@ -330,6 +370,8 @@ def fill_rect(
     attr: int = LC_ATTR_NONE,
 ) -> None:
     if win is None:
+        return
+    if not win.alive:
         return
     if not ch:
         return
@@ -349,6 +391,8 @@ def fill_rect(
 def lc_wclear(win: Optional[LCWin]) -> int:
     if win is None:
         return -1
+    if not win.alive:
+        return -1
     fill_rect(win, 0, 0, win.maxy, win.maxx, ' ', LC_ATTR_NONE)
     win.cury = 0
     win.curx = 0
@@ -357,6 +401,8 @@ def lc_wclear(win: Optional[LCWin]) -> int:
 
 def lc_wclrtobot(win: Optional[LCWin]) -> int:
     if win is None:
+        return -1
+    if not win.alive:
         return -1
 
     y = win.cury
@@ -369,6 +415,8 @@ def lc_wclrtobot(win: Optional[LCWin]) -> int:
 
 def lc_wclrtoeol(win: Optional[LCWin]) -> int:
     if win is None:
+        return -1
+    if not win.alive:
         return -1
     fill_rect(win, win.cury, win.curx, win.cury + 1, win.maxx, ' ', LC_ATTR_NONE)
     return 0
@@ -385,6 +433,8 @@ def lc_wfill(
 ) -> int:
     if win is None:
         return -1
+    if not win.alive:
+        return -1
     if not ch:
         return -1
     if height <= 0 or width <= 0:
@@ -395,6 +445,8 @@ def lc_wfill(
 
 def lc_waddstr(win: Optional[LCWin], s: str) -> int:
     if win is None or s is None:
+        return -1
+    if not win.alive:
         return -1
     if win.maxx <= 0 or win.maxy <= 0:
         return 0
@@ -417,6 +469,8 @@ def lc_waddstr(win: Optional[LCWin], s: str) -> int:
 def lc_wmove(win: Optional[LCWin], y: int, x: int) -> int:
     if win is None:
         return -1
+    if not win.alive:
+        return -1
     if y < 0 or y >= win.maxy or x < 0 or x >= win.maxx:
         return -1
     win.cury = y
@@ -426,6 +480,8 @@ def lc_wmove(win: Optional[LCWin], y: int, x: int) -> int:
 
 def lc_wput(win: Optional[LCWin], ch: int, attr: int = LC_ATTR_NONE) -> int:
     if win is None:
+        return -1
+    if not win.alive:
         return -1
     if win.curx >= win.maxx or win.cury >= win.maxy:
         return -1
@@ -456,6 +512,8 @@ def lc_wdraw_hline(
 ) -> int:
     if win is None:
         return -1
+    if not win.alive:
+        return -1
     if not ch:
         return -1
     if width <= 0:
@@ -479,6 +537,8 @@ def lc_wdraw_vline(
     attr: int = LC_ATTR_NONE,
 ) -> int:
     if win is None:
+        return -1
+    if not win.alive:
         return -1
     if not ch:
         return -1
@@ -509,6 +569,8 @@ def lc_wdraw_box(
     br: str = "+",
 ) -> int:
     if win is None:
+        return -1
+    if not win.alive:
         return -1
 
     y, x, height, width = _normalize_rect(y, x, height, width)
@@ -552,6 +614,8 @@ def lc_wdraw_box_title(
 ) -> int:
     if win is None:
         return -1
+    if not win.alive:
+        return -1
 
     y, x, height, width = _normalize_rect(y, x, height, width)
     if height <= 0 or width <= 0:
@@ -586,6 +650,8 @@ def lc_wdraw_panel(
     br: str = "+",
 ) -> int:
     if win is None:
+        return -1
+    if not win.alive:
         return -1
 
     rc = lc_wdraw_box(win, y, x, height, width, frame_attr, hch, vch, tl, tr, bl, br)
