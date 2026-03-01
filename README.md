@@ -519,7 +519,7 @@ panel-content subwindow. This keeps the model honest:
 This is the baseline for future frame/content zoning and widget composition.
 
 ### 15. C portability
-`
+```
 ┌──────────────────────────────────────────────────────────────┐
 │           vtpy C-PORTABILITY CHECKLIST                       │
 │                                                              │
@@ -544,4 +544,4 @@ This is the baseline for future frame/content zoning and widget composition.
 │  "Can I write this as a C function that takes                │
 │   a struct pointer and returns int?"                         │
 │  If no → rewrite.                                            │
-└──────────────────────────────────────────────────────────────┘`
+└──────────────────────────────────────────────────────────────┘```
