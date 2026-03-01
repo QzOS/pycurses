@@ -1,4 +1,14 @@
 """POSIX terminal backend."""
+
+# Contract notes:
+#   - This backend is byte-oriented.
+#   - read_byte() yields raw terminal bytes from the input fd.
+#   - UTF-8 decoding is not done here; it belongs to the higher-level parser.
+#   - input_pending() reports input-byte readiness only; a resize by itself
+#     must be observed through poll_resize().
+#   - poll_resize() attempts to collapse signal noise into a real size-change
+#     predicate before the core rebuilds screen state.
+
 import fcntl
 import os
 import select

@@ -1,6 +1,17 @@
 """Windows terminal backend.
 
 Requires Windows 10 1607+ (or Windows Terminal) for VT/ANSI support.
+
+Contract notes:
+    - This backend is byte-oriented.
+    - read_byte() returns integers in range 0..255, never Unicode code points.
+    - Special keys are translated to VT-style byte sequences where practical.
+    - input_pending() reports keyboard byte availability only; a resize alone
+      is observed through poll_resize().
+    - For now, direct Unicode input above Latin-1 is intentionally dropped
+      rather than mixing UTF-16/UTF-8 semantics into the current parser model.
+      This keeps backend behavior aligned with the library's byte-stream core,
+      at the cost of incomplete non-Latin-1 text input on Windows.
 """
 
 import ctypes
@@ -720,7 +731,12 @@ def _translate_key_event(key) -> bytes:
         if 0 <= code <= 0xFF:
             data = bytes([code])
         else:
-            # Byte-oriented backend: drop non-Latin-1 code points.
+            # Current backend contract is byte-oriented.
+            # We only forward single-byte code points directly and drop higher
+            # Unicode code points rather than inventing a UTF-16/UTF-8 mix.
+            # This keeps Windows input semantics aligned with the library's
+            # current byte-stream parser model, at the cost of incomplete
+            # Unicode input.
             data = b""
 
     return _with_alt_prefix(data, alt) * repeat
