@@ -8,8 +8,13 @@ from lc_window import (
     lc_waddstr,
     lc_mvwaddstr,
     lc_subwin,
+    fill_rect,
+    lc_wdraw_hline,
+    lc_wdraw_vline,
+    lc_wdraw_box,
+    lc_invalidate_children,
 )
-from lc_term import LC_ATTR_NONE, LC_ATTR_BOLD
+from lc_term import LC_ATTR_NONE, LC_ATTR_BOLD, LC_DIRTY
 
 
 def test_lc_new():
@@ -132,3 +137,201 @@ def test_dead_window_clears_root():
     assert lc_free(win) == 0
     assert win.alive is False
     assert win.root is None
+
+
+# ---------------------------------------------------------------------------
+# Write operation family: clipped drawing/fill (fill_rect, lc_wdraw_hline,
+# lc_wdraw_vline, lc_wdraw_box) — verify cell content, dirty ranges, clipping
+# ---------------------------------------------------------------------------
+
+def _row_text(win, y: int) -> str:
+    return "".join(cell.ch for cell in win.lines[y].line)
+
+
+def _clear_dirty(win) -> None:
+    for ln in win.lines:
+        ln.flags = 0
+        ln.firstch = 0
+        ln.lastch = 0
+
+
+def test_fill_rect_writes_expected_cells_and_dirty_range():
+    win = lc_new(4, 6, 0, 0)
+    assert win is not None
+    _clear_dirty(win)
+
+    fill_rect(win, 1, 1, 3, 4, "x", LC_ATTR_NONE)
+
+    assert _row_text(win, 0) == "      "
+    assert _row_text(win, 1) == " xxx  "
+    assert _row_text(win, 2) == " xxx  "
+    assert _row_text(win, 3) == "      "
+
+    assert win.lines[1].flags & LC_DIRTY
+    assert win.lines[1].firstch == 1
+    assert win.lines[1].lastch == 3
+    assert win.lines[2].flags & LC_DIRTY
+    assert win.lines[0].flags == 0
+    assert win.lines[3].flags == 0
+
+
+def test_fill_rect_clips_to_window_bounds():
+    win = lc_new(3, 4, 0, 0)
+    assert win is not None
+
+    # Request extends beyond window in all directions.
+    fill_rect(win, -1, -1, 10, 10, "Z", LC_ATTR_NONE)
+
+    for y in range(3):
+        assert _row_text(win, y) == "ZZZZ"
+
+
+def test_lc_wdraw_hline_writes_expected_cells_and_dirty_range():
+    win = lc_new(3, 8, 0, 0)
+    assert win is not None
+    _clear_dirty(win)
+
+    assert lc_wdraw_hline(win, 1, 2, 4, "-", LC_ATTR_NONE) == 0
+
+    assert _row_text(win, 0) == "        "
+    assert _row_text(win, 1) == "  ----  "
+    assert _row_text(win, 2) == "        "
+
+    assert win.lines[1].flags & LC_DIRTY
+    assert win.lines[1].firstch == 2
+    assert win.lines[1].lastch == 5
+    assert win.lines[0].flags == 0
+    assert win.lines[2].flags == 0
+
+
+def test_lc_wdraw_hline_clips_to_window_bounds():
+    win = lc_new(2, 4, 0, 0)
+    assert win is not None
+
+    # Start within bounds, extends beyond right edge.
+    assert lc_wdraw_hline(win, 0, 2, 10, "=", LC_ATTR_NONE) == 0
+    assert _row_text(win, 0) == "  =="
+
+    # y out of bounds returns 0 (noop).
+    assert lc_wdraw_hline(win, 5, 0, 4, "-", LC_ATTR_NONE) == 0
+
+
+def test_lc_wdraw_vline_writes_expected_cells_and_dirty_range():
+    win = lc_new(5, 4, 0, 0)
+    assert win is not None
+    _clear_dirty(win)
+
+    assert lc_wdraw_vline(win, 1, 2, 3, "|", LC_ATTR_NONE) == 0
+
+    assert win.lines[0].line[2].ch == " "
+    assert win.lines[1].line[2].ch == "|"
+    assert win.lines[2].line[2].ch == "|"
+    assert win.lines[3].line[2].ch == "|"
+    assert win.lines[4].line[2].ch == " "
+
+    for y in (1, 2, 3):
+        assert win.lines[y].flags & LC_DIRTY
+        assert win.lines[y].firstch == 2
+        assert win.lines[y].lastch == 2
+    assert win.lines[0].flags == 0
+    assert win.lines[4].flags == 0
+
+
+def test_lc_wdraw_vline_clips_to_window_bounds():
+    win = lc_new(3, 4, 0, 0)
+    assert win is not None
+
+    # Start within bounds, extends beyond bottom.
+    assert lc_wdraw_vline(win, 2, 1, 10, "|", LC_ATTR_NONE) == 0
+    assert win.lines[2].line[1].ch == "|"
+
+    # x out of bounds returns 0 (noop).
+    assert lc_wdraw_vline(win, 0, 10, 3, "|", LC_ATTR_NONE) == 0
+
+
+def test_lc_wdraw_box_writes_expected_corners_and_edges():
+    win = lc_new(4, 6, 0, 0)
+    assert win is not None
+    _clear_dirty(win)
+
+    assert lc_wdraw_box(win, 0, 0, 4, 6, LC_ATTR_NONE, "-", "|", "+", "+", "+", "+") == 0
+
+    # Corners
+    assert win.lines[0].line[0].ch == "+"
+    assert win.lines[0].line[5].ch == "+"
+    assert win.lines[3].line[0].ch == "+"
+    assert win.lines[3].line[5].ch == "+"
+
+    # Top and bottom edges
+    for x in range(1, 5):
+        assert win.lines[0].line[x].ch == "-"
+        assert win.lines[3].line[x].ch == "-"
+
+    # Left and right edges
+    for y in range(1, 3):
+        assert win.lines[y].line[0].ch == "|"
+        assert win.lines[y].line[5].ch == "|"
+
+    # Interior is untouched
+    for y in range(1, 3):
+        for x in range(1, 5):
+            assert win.lines[y].line[x].ch == " "
+
+    # All border rows are dirty
+    for y in (0, 3):
+        assert win.lines[y].flags & LC_DIRTY
+    for y in (1, 2):
+        assert win.lines[y].flags & LC_DIRTY
+
+
+def test_lc_wdraw_box_clips_to_window_bounds():
+    win = lc_new(3, 4, 0, 0)
+    assert win is not None
+
+    # Box extends beyond all edges — should still succeed without error.
+    assert lc_wdraw_box(win, -1, -1, 10, 10, LC_ATTR_NONE) == 0
+
+
+def test_lc_waddstr_dirty_range_matches_chars_written():
+    win = lc_new(2, 6, 0, 0)
+    assert win is not None
+    _clear_dirty(win)
+
+    assert lc_wmove(win, 0, 1) == 0
+    assert lc_waddstr(win, "abc") == 0
+
+    assert win.lines[0].flags & LC_DIRTY
+    assert win.lines[0].firstch == 1
+    assert win.lines[0].lastch == 3
+    assert win.lines[1].flags == 0
+
+
+# ---------------------------------------------------------------------------
+# Root/self-root invariants across create/subwin/free/resize replacement
+# ---------------------------------------------------------------------------
+
+def test_root_invariant_after_resize_replacement():
+    """After resize replacement, old subwindows have alive=False and root=None;
+    new stdscr has root is self."""
+    root = lc_new(4, 5, 0, 0)
+    assert root is not None
+    assert root.root is root
+
+    child = lc_subwin(root, 2, 2, 1, 1)
+    assert child is not None
+    assert child.root is root
+
+    # Simulate resize: invalidate children, free old root, create new root.
+    lc_invalidate_children(root)
+    lc_free(root)
+
+    new_root = lc_new(6, 7, 0, 0)
+    assert new_root is not None
+
+    assert root.alive is False
+    assert root.root is None
+    assert child.alive is False
+    assert child.root is None
+
+    assert new_root.alive is True
+    assert new_root.root is new_root

@@ -106,9 +106,9 @@ def _interior_rect(y: int, x: int, height: int, width: int) -> tuple[int, int, i
 
 
 def _store_cell_unchecked(win: LCWin, y: int, x: int, ch: str, attr: int) -> None:
-    # Preconditions:
-    # - win is alive
-    # - y/x are within bounds
+    # Preconditions (caller must guarantee):
+    # - win is alive and win.lines is populated
+    # - 0 <= y < win.maxy, 0 <= x < win.maxx
     # - ch is non-empty
     outch = ch[0]
     win.lines[y].line[x].ch = outch
@@ -124,10 +124,9 @@ def _store_hspan_char_unchecked(
     ch: str,
     attr: int,
 ) -> None:
-    # Preconditions:
-    # - win is alive
-    # - y is within bounds
-    # - 0 <= start < end <= win.maxx
+    # Preconditions (caller must guarantee):
+    # - win is alive and win.lines is populated
+    # - 0 <= y < win.maxy, 0 <= start < end <= win.maxx
     # - ch is non-empty
     outch = ch[0]
     ln = win.lines[y]
@@ -138,11 +137,9 @@ def _store_hspan_char_unchecked(
 
 
 def _store_hspan_text_unchecked(win: LCWin, y: int, start: int, text: str, attr: int) -> None:
-    # Preconditions:
-    # - win is alive
-    # - y is within bounds
-    # - 0 <= start
-    # - start + len(text) <= win.maxx
+    # Preconditions (caller must guarantee):
+    # - win is alive and win.lines is populated
+    # - 0 <= y < win.maxy, 0 <= start, start + len(text) <= win.maxx
     # - text is non-empty
     end = start + len(text)
     ln = win.lines[y]
@@ -211,6 +208,10 @@ def _write_text_clipped(
 
 
 def _mark_window_dirty(win: Optional[LCWin], y: int, start: int, end: int) -> None:
+    # Propagate a dirty span upward through the parent chain.
+    # Each ancestor row is marked dirty for the corresponding absolute span.
+    # The loop guards against a dead window mid-chain (safe for partial frees)
+    # and against a coordinate that falls outside a parent's bounds.
     cur = win
     cy = y
     cs = start
@@ -236,6 +237,8 @@ def _mark_window_dirty(win: Optional[LCWin], y: int, start: int, end: int) -> No
 
 
 def _set_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
+    # Internal single-cell write used by cursor-driven and drawing helpers.
+    # Validates bounds and aliveness, then delegates to the unchecked writer.
     if win is None:
         return
     if not win.alive:
@@ -247,17 +250,9 @@ def _set_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
     _store_cell_unchecked(win, y, x, ch, attr)
 
 
-def _write_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
-    if win is None:
-        return
-    if not win.alive:
-        return
-    if y < 0 or y >= win.maxy or x < 0 or x >= win.maxx:
-        return
-    if not ch:
-        return
-
-    _store_cell_unchecked(win, y, x, ch, attr)
+# _write_cell is an alias for _set_cell kept for call-site readability in box
+# drawing, where using _set_cell directly would read ambiguously.
+_write_cell = _set_cell
 
 
 def _cursor_at_last_cell(win: LCWin) -> bool:
@@ -499,6 +494,14 @@ def lc_free(win: Optional[LCWin]) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Clipped drawing/fill family
+#
+# These helpers operate on clipped geometry. They do NOT use or advance the
+# cursor. They are the correct family for drawing borders, lines, and fills
+# at explicit coordinates.
+# ---------------------------------------------------------------------------
+
 def fill_rect(
     win: Optional[LCWin],
     y0: int,
@@ -577,6 +580,14 @@ def lc_wfill(
     fill_rect(win, y, x, y + height, x + width, ch[0], attr)
     return 0
 
+
+# ---------------------------------------------------------------------------
+# Cursor-driven write family
+#
+# These helpers write at the current cursor position and advance the cursor
+# after each character. The cursor saturates at the last valid cell rather
+# than wrapping or raising an error. Use lc_wmove to reposition before writing.
+# ---------------------------------------------------------------------------
 
 def lc_waddstr(win: Optional[LCWin], s: str) -> int:
     if win is None or s is None:

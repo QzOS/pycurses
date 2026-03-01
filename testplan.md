@@ -262,7 +262,7 @@ This is good to lock in because panel helpers can otherwise be treated as someth
 
 ### Test 6.2 — Panel content subwindow invalidates on resize like any other child
 
-**Testfile:** missing
+**Testfile:** `tests/test_lc_subwindow.py` (`test_panel_content_subwin_invalidates_on_resize`)
 
 **Expected**
 - Same invalidation rule.

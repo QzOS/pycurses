@@ -22,6 +22,9 @@ def _can_use_row_hash_shortcut(win: LCWin, abs_y: int) -> bool:
     # The row-hash cache is keyed by physical screen row.
     # Only use the row-hash shortcut when the window row maps to the full
     # visible physical row domain represented by lc.hashes[abs_y].
+    #
+    # Dead-window safety: lc_wrefresh() validates win.alive before entering
+    # the render loop, so this helper is never called on a dead window.
     if abs_y < 0 or abs_y >= lc.lines:
         return False
     if win.parent is not None:
