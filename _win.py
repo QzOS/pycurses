@@ -219,6 +219,7 @@ def _reset_state_fields(state) -> None:
     state._win_hin = None
     state._win_hout = None
     state._last_size = (24, 80)
+    state._input_bytes = deque()
     state.in_fd = 0
     state.out_fd = 1
     state.pushback_byte = None
@@ -227,12 +228,13 @@ def _reset_state_fields(state) -> None:
         state.resize_pending = False
 
     with _input_lock:
-        if hasattr(state, "_input_bytes") and state._input_bytes is not None:
-            state._input_bytes.clear()
+        state._input_bytes.clear()
 
 
 def init(state) -> int:
     """Initialize terminal for Windows console with VT processing."""
+    _reset_state_fields(state)
+
     state.in_fd = 0
     state.out_fd = 1
 
@@ -240,9 +242,6 @@ def init(state) -> int:
         state.term.out_fd = state.out_fd
     except AttributeError:
         pass
-
-    state._input_bytes = deque()
-    state._last_size = (24, 80)
 
     # These are internal-only fields owned by this backend.
     state._win_hin = None
@@ -421,24 +420,16 @@ def apply_term(state) -> int:
     except (TypeError, ValueError):
         return -1
 
+    prev_out_mode = int(cur_term[1])
     new_in_mode = _normalize_input_mode(desired_in_mode)
     new_out_mode = desired_out_mode
-
-    rollback_out_mode = desired_out_mode
-
-    orig_term = getattr(state, "orig_term", None)
-    if orig_term is not None and len(orig_term) >= 2:
-        try:
-            rollback_out_mode = int(orig_term[1])
-        except (TypeError, ValueError):
-            rollback_out_mode = desired_out_mode
 
     if not _set_console_mode(hout, new_out_mode):
         return -1
 
     if not _set_console_mode(hin, new_in_mode):
         try:
-            _set_console_mode(hout, rollback_out_mode)
+            _set_console_mode(hout, prev_out_mode)
         except (OSError, ValueError, TypeError):
             pass
         return -1
