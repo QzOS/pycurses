@@ -167,6 +167,23 @@ The public API should remain platform-neutral.
 
 The window layer owns logical drawing semantics.
 
+### Cursor progression rule
+
+The current cursor policy is saturating at the last writable cell.
+
+That means:
+
+- writing at any non-final cell advances normally
+- writing at the final cell succeeds
+- after a successful write at the final cell, the cursor remains at that cell
+- subsequent writes continue to target that same final cell unless the application moves the cursor
+
+This is intentional.
+The library does not currently expose a public end-of-window sentinel state through
+`cury` / `curx`.
+
+Single-cell and bulk text writes are expected to obey the same final-cell rule.
+
 ### Strict operations
 
 These are strict and return `-1` on invalid coordinates:
@@ -212,6 +229,15 @@ Subwindows are now part of the intended core model.
 Subwindows are tied to the current backing-store topology.
 When the root window is resized, all existing subwindows are invalidated and freed.
 Applications must rebuild derived windows after observing `LC_KEY_RESIZE`.
+
+Refresh behavior follows the same rule:
+
+- refreshing a dead window fails
+- refreshing a derived window from the pre-resize topology fails
+- root refresh may continue on the rebuilt `stdscr`
+
+The library must not silently reinterpret an explicit refresh of an invalidated
+subwindow as a refresh of the new root window.
 
 ### Panel/content helper rules
 

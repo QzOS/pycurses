@@ -88,15 +88,18 @@ Current risk:
 - this can lead to index errors or undefined rendering behavior
 
 ### 2. Cursor semantics at the bottom-right corner are awkward
-`_advance_cursor()` currently uses an out-of-range row sentinel on final wrap.
+This is no longer using an out-of-range row sentinel.
 
-This works, but it is not clean.
-The project should choose one explicit model:
+The current chosen model is:
 
-- saturating cursor at last valid cell, or
-- private end-of-window state that does not leak through `cury`/`curx`
+- saturating cursor at the last valid cell
 
-### 3. Refresh semantics for subwindows are not documented sharply enough
+Current rule:
+
+- a successful write at the final cell leaves the cursor at that cell
+- subsequent writes continue to target that same cell until the cursor is moved
+
+### 3. Refresh semantics for subwindows are now sharper, but still need explicit tests/docs coverage
 It should be stated clearly whether `lc_wrefresh(subwin)` is a first-class supported operation or merely something that happens to work.
 
 ### 4. Bulk write paths are slightly split
@@ -112,17 +115,14 @@ The core behavior is correct enough, but the expected app-side rebuild sequence 
 These are the next sensible tasks in order.
 
 ### Priority 1: close correctness gaps
-- [ ] Add an `alive` guard at the start of `lc_wrefresh()`.
+- [x] Add an `alive` guard at the start of `lc_wrefresh()`.
 - [ ] Audit refresh-adjacent helpers for dead-window assumptions.
-- [ ] Add tests that explicitly verify refresh on dead windows fails cleanly.
+- [x] Add tests that explicitly verify refresh on dead windows fails cleanly.
 
 ### Priority 2: fix cursor semantics
-- [ ] Choose and document the cursor model at the last cell.
-- [ ] Update `_advance_cursor()` and write paths accordingly.
-- [ ] Add tests for:
-  - final-column write
-  - final-cell write
-  - repeated writes after last writable cell
+- [x] Choose and document the cursor model at the last cell.
+- [x] Update `_advance_cursor()` and write paths accordingly.
+- [x] Add tests for final-column write, final-cell write, and repeated writes after the last writable cell.
 
 ### Priority 3: lock down subwindow refresh semantics
 - [ ] Decide whether subwindow refresh is first-class API behavior.
@@ -182,6 +182,8 @@ These are real future items, but not the next thing to touch.
 - Do not add convenience helpers that hide unresolved semantics.
 - Do not preserve subwindows across resize unless the full remap contract is designed first.
 - Prefer explicit invalidation and rebuild over clever hidden behavior.
+- Do not silently redirect an explicit refresh of an invalidated derived window
+  to the rebuilt root window.
 - Keep tests focused on contracts and invariants, not just happy-path screenshots.
 
 ## Working definition of the project
