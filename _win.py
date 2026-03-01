@@ -170,6 +170,39 @@ def _valid_handle(handle) -> bool:
     return handle not in (None, _NULL_HANDLE_VALUE, _INVALID_HANDLE_VALUE)
 
 
+def _get_terminal_size_fd(fd: int):
+    try:
+        sz = os.get_terminal_size(fd)
+        if sz.lines > 0 and sz.columns > 0:
+            return sz.lines, sz.columns
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
+
+
+def _normalize_input_mode(mode: int) -> int:
+    """Keep backend-required input flags enabled."""
+    mode |= _ENABLE_WINDOW_INPUT
+    mode |= _ENABLE_VIRTUAL_TERMINAL_INPUT
+    return mode
+
+
+def _set_console_mode(handle, mode: int) -> bool:
+    if not _valid_handle(handle):
+        return False
+    try:
+        return bool(_kernel32.SetConsoleMode(handle, int(mode)))
+    except (OSError, ValueError, TypeError):
+        return False
+
+
+def _update_input_mode(state, clear_mask: int = 0, set_mask: int = 0) -> int:
+    if state.cur_term is None:
+        return -1
+    state.cur_term[0] = _normalize_input_mode((int(state.cur_term[0]) & ~clear_mask) | set_mask)
+    return apply_term(state)
+
+
 def _reset_state_fields(state) -> None:
     state.orig_term = None
     state.cur_term = None
@@ -178,12 +211,13 @@ def _reset_state_fields(state) -> None:
     state._last_size = (24, 80)
     state.in_fd = 0
     state.out_fd = 1
+    state.pushback_byte = None
 
     with _resize_lock:
         state.resize_pending = False
 
     with _input_lock:
-        if hasattr(state, "_input_bytes"):
+        if hasattr(state, "_input_bytes") and state._input_bytes is not None:
             state._input_bytes.clear()
 
 
@@ -191,7 +225,12 @@ def init(state) -> int:
     """Initialize terminal for Windows console with VT processing."""
     state.in_fd = 0
     state.out_fd = 1
-    state.term.out_fd = state.out_fd
+
+    try:
+        state.term.out_fd = state.out_fd
+    except AttributeError:
+        pass
+
     state._input_bytes = deque()
     state._last_size = (24, 80)
 
@@ -208,10 +247,12 @@ def init(state) -> int:
     # Save original console modes
     orig_in_mode = ctypes.wintypes.DWORD()
     if not _kernel32.GetConsoleMode(hin, ctypes.byref(orig_in_mode)):
+        _reset_state_fields(state)
         return -1
 
     orig_out_mode = ctypes.wintypes.DWORD()
     if not _kernel32.GetConsoleMode(hout, ctypes.byref(orig_out_mode)):
+        _reset_state_fields(state)
         return -1
 
     # Store original modes in state for restoration
@@ -254,11 +295,14 @@ def init(state) -> int:
 def end(state) -> int:
     """Restore terminal to original state."""
 
-    if state.orig_term is not None:
-        orig_in_mode, orig_out_mode, hin, hout = state.orig_term
+    orig_term = getattr(state, "orig_term", None)
+    if orig_term is not None:
+        orig_in_mode, orig_out_mode, hin, hout = orig_term
         try:
-            _kernel32.SetConsoleMode(hin, orig_in_mode)
-            _kernel32.SetConsoleMode(hout, orig_out_mode)
+            if _valid_handle(hin):
+                _kernel32.SetConsoleMode(hin, orig_in_mode)
+            if _valid_handle(hout):
+                _kernel32.SetConsoleMode(hout, orig_out_mode)
         except (OSError, ValueError):
             pass
 
@@ -268,12 +312,19 @@ def end(state) -> int:
 
 def get_size(state) -> tuple[int, int]:
     """Get terminal size (rows, cols)."""
-    try:
-        sz = os.get_terminal_size(state.out_fd)
-        if sz.lines > 0 and sz.columns > 0:
-            return sz.lines, sz.columns
-    except (OSError, ValueError):
-        pass
+    out_fd = getattr(state, "out_fd", None)
+    in_fd = getattr(state, "in_fd", None)
+
+    if out_fd is not None:
+        size = _get_terminal_size_fd(out_fd)
+        if size is not None:
+            return size
+
+    if in_fd is not None and in_fd != out_fd:
+        size = _get_terminal_size_fd(in_fd)
+        if size is not None:
+            return size
+
     return 24, 80
 
 
@@ -343,46 +394,80 @@ def clear_resize(state) -> None:
 def apply_term(state) -> int:
     """Apply terminal settings.
 
-    On Windows, terminal mode changes are applied immediately
-    via SetConsoleMode, so this is effectively a no-op.
-    Returns 0 to indicate success.
+    Apply current console modes stored in state.cur_term.
     """
+    cur_term = getattr(state, "cur_term", None)
+    hin = getattr(state, "_win_hin", None)
+    hout = getattr(state, "_win_hout", None)
+
+    if cur_term is None or len(cur_term) < 2:
+        return -1
+    if not _valid_handle(hin) or not _valid_handle(hout):
+        return -1
+
+    in_mode = _normalize_input_mode(int(cur_term[0]))
+    out_mode = int(cur_term[1])
+
+    if not _set_console_mode(hout, out_mode):
+        return -1
+    if not _set_console_mode(hin, in_mode):
+        return -1
+
+    state.cur_term[0] = in_mode
+    state.cur_term[1] = out_mode
     return 0
 
 
 def raw(state) -> int:
-    return -1
+    return _update_input_mode(
+        state,
+        clear_mask=(_ENABLE_LINE_INPUT | _ENABLE_ECHO_INPUT | _ENABLE_PROCESSED_INPUT),
+        set_mask=0,
+    )
 
 
 def noraw(state) -> int:
-    return -1
+    return _update_input_mode(
+        state,
+        clear_mask=0,
+        set_mask=(_ENABLE_LINE_INPUT | _ENABLE_PROCESSED_INPUT),
+    )
 
 
 def cbreak(state) -> int:
-    return -1
+    return _update_input_mode(
+        state,
+        clear_mask=_ENABLE_LINE_INPUT,
+        set_mask=0,
+    )
 
 
 def nocbreak(state) -> int:
-    return -1
+    return _update_input_mode(
+        state,
+        clear_mask=0,
+        set_mask=_ENABLE_LINE_INPUT,
+    )
 
 
 def echo(state) -> int:
-    return -1
+    return _update_input_mode(state, clear_mask=0, set_mask=_ENABLE_ECHO_INPUT)
 
 
 def noecho(state) -> int:
-    return -1
+    return _update_input_mode(state, clear_mask=_ENABLE_ECHO_INPUT, set_mask=0)
 
 
 def _peek_input_byte(state) -> bool:
     with _input_lock:
-        return bool(state._input_bytes)
+        return bool(getattr(state, "_input_bytes", None))
 
 
 def _pop_input_byte(state):
     with _input_lock:
-        if state._input_bytes:
-            return state._input_bytes.popleft()
+        buf = getattr(state, "_input_bytes", None)
+        if buf:
+            return buf.popleft()
     return None
 
 
@@ -390,7 +475,9 @@ def _push_input_bytes(state, data: bytes) -> None:
     if not data:
         return
     with _input_lock:
-        state._input_bytes.extend(data)
+        buf = getattr(state, "_input_bytes", None)
+        if buf is not None:
+            buf.extend(data)
 
 
 def _wait_console_input(state, timeout_ms: int) -> int:
@@ -454,7 +541,7 @@ def _handle_console_record(state, rec) -> None:
     if rec.EventType == _WINDOW_BUFFER_SIZE_EVENT:
         current_size = get_size(state)
         if current_size[0] > 0 and current_size[1] > 0:
-            if current_size != state._last_size:
+            if current_size != getattr(state, "_last_size", None):
                 state._last_size = current_size
                 with _resize_lock:
                     state.resize_pending = True
