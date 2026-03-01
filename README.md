@@ -205,15 +205,32 @@ No window operation may read or write outside the window backing store.
 
 ## 5.4 Subwindow semantics contract
 
-Subwindows are now part of the intended core model.
+Subwindows are part of the intended core model.
 
 ### Current subwindow rules
 
 - `lc_subwin(parent, ...)` creates a child window in parent-relative coordinates.
 - Subwindows share `LCCell` objects with the parent backing store.
+- Shared backing means shared cell content, not a fully shared refresh state.
 - Writes through a subwindow must be visible through the parent and vice versa.
 - Dirty tracking must propagate upward from child to parent chain.
 - A child window is lifecycle-owned by its parent.
+
+### Shared-backing refresh consequence
+
+The current refresh model is root-oriented.
+
+That means:
+
+- shared-backing windows share cell contents
+- they do not currently share dirty metadata symmetrically across every alias
+- dirty changes are guaranteed to propagate upward from child to parent
+- dirty changes made through a parent or sibling are not currently guaranteed to
+  mark every overlapping child view dirty
+
+As a result, refreshing the root window is the fully coherent presentation path
+for a shared-backing window topology. A derived-window refresh is only guaranteed
+with respect to dirty state tracked on that derived window and its upward propagation.
 
 ### Lifecycle rules
 
@@ -233,9 +250,18 @@ Refresh behavior follows the same rule:
 - refreshing a dead window fails
 - refreshing a derived window from the pre-resize topology fails
 - root refresh may continue on the rebuilt `stdscr`
+- the library does not reinterpret an explicit refresh of an invalidated
+  derived window as a refresh of the rebuilt root window
 
-The library must not silently reinterpret an explicit refresh of an invalidated
-subwindow as a refresh of the new root window.
+### Practical refresh rule
+
+Applications should treat derived windows primarily as shared-backing drawing
+views, not as independently coherent presentation surfaces.
+
+In practice:
+
+- draw through root or derived windows as needed
+- prefer refreshing the root window when shared-backing subwindows overlap or interact
 
 ### Panel/content helper rules
 
@@ -249,11 +275,20 @@ The refresh layer compares window contents against a cached screen image and emi
 
 Refresh is allowed to clip against physical screen bounds.
 Window drawing is not.
+The cached screen image is global physical-screen state, not per-window state.
 
 That distinction matters:
 
 - window clipping protects logical backing storage
 - refresh clipping protects terminal output bounds
+
+### Refresh coherence rule
+
+The root window is the fully coherent refresh source for the current
+shared-backing model.
+
+Derived-window refresh is supported only within the limits described in the
+subwindow contract above.
 
 ## 6. Current text model
 
@@ -306,9 +341,14 @@ Resize is modeled as an event-like condition surfaced through the backend and co
 
 - backend notices resize
 - backend reports `poll_resize() == True`
+- a refresh call may observe that resize before emitting output
 - core checks actual size
 - core rebuilds stdscr and cached screen state
+- core invalidates all derived windows from the old topology
 - key layer emits `LC_KEY_RESIZE`
+
+Applications must rebuild any derived windows after that point before using
+them again, including for explicit refresh calls.
 
 ### Important rule
 
@@ -325,6 +365,7 @@ These parts are stable enough to be treated as the current intended model:
 - dirty row/cell repainting
 - clipped drawing primitives
 - resize surfaced as `LC_KEY_RESIZE`
+- root-oriented refresh coherence for shared-backing windows
 - shared-backing subwindows with upward dirty propagation
 - panel-content subwindow helpers
 
@@ -333,6 +374,7 @@ These parts are stable enough to be treated as the current intended model:
 These areas are still under active design and should not yet be treated as frozen API truth:
 
 - Unicode cell-width semantics
+- whether derived-window refresh should remain limited or become fully coherent across shared aliases
 - whether future window types should include copied-backing windows in addition to shared-backing subwindows
 - richer panel/header/content zoning
 - richer attribute and color model
