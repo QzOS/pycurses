@@ -91,14 +91,20 @@ Dirty ranges are the basic repaint unit inside the window layer.
 
 ### 4.3 Window model
 
+A window may be either a root backing store or a derived subwindow.
+
 A window currently contains:
 
 - dimensions: `maxy`, `maxx`
 - origin relative to the screen: `begy`, `begx`
 - cursor: `cury`, `curx`
 - row storage
+- optional parent/root relationship
+- parent-relative origin: `pary`, `parx`
+- lifecycle state: `alive`
+- child list for recursive teardown
 
-At present a window is a self-contained rectangular backing store. There is no parent/child or subwindow ownership model yet.
+Subwindows share backing cells with their parent. They do not own independent cell storage.
 
 ## 5. Core contracts
 
@@ -181,7 +187,38 @@ These clip against the window bounds and return `0` for valid operations even wh
 
 No window operation may read or write outside the window backing store.
 
-## 5.4 Refresh semantics contract
+## 5.4 Subwindow semantics contract
+
+Subwindows are now part of the intended core model.
+
+### Current subwindow rules
+
+- `lc_subwin(parent, ...)` creates a child window in parent-relative coordinates.
+- Subwindows share `LCCell` objects with the parent backing store.
+- Writes through a subwindow must be visible through the parent and vice versa.
+- Dirty tracking must propagate upward from child to parent chain.
+- A child window is lifecycle-owned by its parent.
+
+### Lifecycle rules
+
+- Every window has an `alive` state.
+- Operations on dead windows return `-1` where the operation normally reports failure, or act as no-op only for internal helpers that are intentionally silent.
+- `lc_free(parent)` recursively frees the full child subtree first.
+- A child cannot outlive its parent.
+
+### Resize rule
+
+Subwindows are tied to the current backing-store topology.
+When the root window is resized, all existing subwindows are invalidated and freed.
+Applications must rebuild derived windows after observing `LC_KEY_RESIZE`.
+
+### Panel/content helper rules
+
+- `lc_panel_content_rect(...)` returns the interior content rect for a boxed panel.
+- `lc_panel_subwin(...)` creates a derived subwindow for that interior.
+- Panel-content subwindows are ordinary subwindows and therefore follow the same lifecycle and resize rules.
+
+## 5.5 Refresh semantics contract
 
 The refresh layer compares window contents against a cached screen image and emits only changes.
 
@@ -263,39 +300,33 @@ These parts are stable enough to be treated as the current intended model:
 - dirty row/cell repainting
 - clipped drawing primitives
 - resize surfaced as `LC_KEY_RESIZE`
+- shared-backing subwindows with upward dirty propagation
+- panel-content subwindow helpers
 
 ## 10. What is still in motion
 
 These areas are still under active design and should not yet be treated as frozen API truth:
 
 - Unicode cell-width semantics
-- subwindows / parent-child window relationships
-- box titles / content regions as public helpers
-- attr-aware fill primitives
+- whether future window types should include copied-backing windows in addition to shared-backing subwindows
+- richer panel/header/content zoning
 - richer attribute and color model
 - broader terminal capability modeling beyond current VT-oriented assumptions
+- resize-preserving child/window topologies, if we ever choose to support them
 
 ## 11. Likely next steps
 
 The most likely near-term directions are:
 
-### 11.1 Window hierarchy groundwork
+### 11.1 Better panel zoning
 
-Define whether windows will gain:
+Now that panel content rects and content subwindows exist, the next logical step is to formalize optional header bands or other internal panel regions without reintroducing ad hoc coordinate math.
 
-- parent pointers
-- clipping against parent content areas
-- subwindow/shared backing behavior versus copied backing behavior
+### 11.2 Copied-backing versus shared-backing policy
 
-### 11.2 Better content-rect semantics
+At some point the project may need to choose explicitly whether every derived window remains shared-backing, or whether some future window types should own copied backing storage instead.
 
-Now that `_interior_rect()` exists, the next logical step is to formalize content areas for boxed regions and later for panels or subwindows.
-
-### 11.3 Attr-aware fill operations
-
-`fill_rect()` currently resets attributes to `LC_ATTR_NONE`. That is fine as a simple clear primitive, but eventually there should likely be a fill primitive that accepts both character and attribute.
-
-### 11.4 Unicode policy
+### 11.3 Unicode policy
 
 At some point the project must choose explicitly between:
 
@@ -304,6 +335,10 @@ At some point the project must choose explicitly between:
 - a grapheme-aware model
 
 Avoid drifting into accidental half-support.
+
+### 11.4 Richer attributes
+
+The current attribute model is intentionally thin. If the library grows up into more serious UI work, colors and richer style composition will need their own explicit contract rather than being implied piecemeal.
 
 ## 12. Development principles for this codebase
 
