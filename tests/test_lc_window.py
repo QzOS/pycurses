@@ -7,6 +7,7 @@ from lc_window import (
     lc_wput,
     lc_waddstr,
     lc_mvwaddstr,
+    lc_subwin,
 )
 from lc_term import LC_ATTR_NONE, LC_ATTR_BOLD
 
@@ -18,6 +19,7 @@ def test_lc_new():
     assert win.maxx == 20
     assert win.begy == 0
     assert win.begx == 0
+    assert win.root is win
 
 
 def test_lc_new_invalid():
@@ -99,3 +101,34 @@ def test_lc_wclear():
     assert win.cury == 0
     assert win.curx == 0
     assert win.lines[0].line[0].ch == ' '
+
+
+def test_live_top_level_window_has_self_root():
+    win = lc_new(4, 5, 0, 0)
+    assert win is not None
+    assert win.parent is None
+    assert win.alive is True
+    assert win.root is win
+
+
+def test_live_subwindow_inherits_top_root():
+    root = lc_new(6, 8, 0, 0)
+    child = lc_subwin(root, 4, 5, 1, 1)
+    grand = lc_subwin(child, 2, 2, 1, 1)
+
+    assert root is not None
+    assert child is not None
+    assert grand is not None
+
+    assert root.root is root
+    assert child.root is root
+    assert grand.root is root
+
+
+def test_dead_window_clears_root():
+    win = lc_new(3, 3, 0, 0)
+    assert win is not None
+    assert win.root is win
+    assert lc_free(win) == 0
+    assert win.alive is False
+    assert win.root is None

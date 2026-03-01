@@ -105,6 +105,53 @@ def _interior_rect(y: int, x: int, height: int, width: int) -> tuple[int, int, i
     return y + 1, x + 1, height - 2, width - 2
 
 
+def _store_cell_unchecked(win: LCWin, y: int, x: int, ch: str, attr: int) -> None:
+    # Preconditions:
+    # - win is alive
+    # - y/x are within bounds
+    # - ch is non-empty
+    outch = ch[0]
+    win.lines[y].line[x].ch = outch
+    win.lines[y].line[x].attr = attr
+    _mark_window_dirty(win, y, x, x + 1)
+
+
+def _store_hspan_char_unchecked(
+    win: LCWin,
+    y: int,
+    start: int,
+    end: int,
+    ch: str,
+    attr: int,
+) -> None:
+    # Preconditions:
+    # - win is alive
+    # - y is within bounds
+    # - 0 <= start < end <= win.maxx
+    # - ch is non-empty
+    outch = ch[0]
+    ln = win.lines[y]
+    for x in range(start, end):
+        ln.line[x].ch = outch
+        ln.line[x].attr = attr
+    _mark_window_dirty(win, y, start, end)
+
+
+def _store_hspan_text_unchecked(win: LCWin, y: int, start: int, text: str, attr: int) -> None:
+    # Preconditions:
+    # - win is alive
+    # - y is within bounds
+    # - 0 <= start
+    # - start + len(text) <= win.maxx
+    # - text is non-empty
+    end = start + len(text)
+    ln = win.lines[y]
+    for i, x in enumerate(range(start, end)):
+        ln.line[x].ch = text[i]
+        ln.line[x].attr = attr
+    _mark_window_dirty(win, y, start, end)
+
+
 def _write_hspan(
     win: Optional[LCWin],
     y: int,
@@ -124,13 +171,7 @@ def _write_hspan(
     if not ch:
         return
 
-    outch = ch[0]
-    ln = win.lines[y]
-    for x in range(start, end):
-        ln.line[x].ch = outch
-        ln.line[x].attr = attr
-
-    _mark_window_dirty(win, y, start, end)
+    _store_hspan_char_unchecked(win, y, start, end, ch, attr)
 
 
 def _write_hspan_text(win: Optional[LCWin], y: int, start: int, text: str, attr: int) -> None:
@@ -139,11 +180,7 @@ def _write_hspan_text(win: Optional[LCWin], y: int, start: int, text: str, attr:
     end = start + len(text)
     if y < 0 or y >= win.maxy or start < 0 or end > win.maxx or start >= end:
         return
-    ln = win.lines[y]
-    for i, x in enumerate(range(start, end)):
-        ln.line[x].ch = text[i]
-        ln.line[x].attr = attr
-    _mark_window_dirty(win, y, start, end)
+    _store_hspan_text_unchecked(win, y, start, text, attr)
 
 
 def _write_text_clipped(
@@ -207,10 +244,7 @@ def _set_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
         return
     if not ch:
         return
-
-    win.lines[y].line[x].ch = ch[0]
-    win.lines[y].line[x].attr = attr
-    _mark_window_dirty(win, y, x, x + 1)
+    _store_cell_unchecked(win, y, x, ch, attr)
 
 
 def _write_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
@@ -223,7 +257,7 @@ def _write_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> Non
     if not ch:
         return
 
-    _set_cell(win, y, x, ch[0], attr)
+    _store_cell_unchecked(win, y, x, ch, attr)
 
 
 def _cursor_at_last_cell(win: LCWin) -> bool:
@@ -319,7 +353,7 @@ def lc_new(nlines: int, ncols: int, begin_y: int, begin_x: int) -> Optional[LCWi
                     flags=LC_DIRTY | LC_FORCEPAINT)
         lines.append(row)
 
-    return LCWin(
+    win = LCWin(
         maxy=nlines,
         maxx=ncols,
         begy=begin_y,
@@ -335,6 +369,8 @@ def lc_new(nlines: int, ncols: int, begin_y: int, begin_x: int) -> Optional[LCWi
         children=[],
         lines=lines
     )
+    win.root = win
+    return win
 
 
 def lc_subwin(
@@ -371,7 +407,7 @@ def lc_subwin(
         )
         lines.append(row)
 
-    root = parent.root if parent.root is not None else parent
+    root = parent.root
     sub = LCWin(
         maxy=nlines,
         maxx=ncols,
@@ -648,10 +684,7 @@ def lc_wdraw_vline(
 
     outch = ch[0]
     for cy in range(start, end):
-        ln = win.lines[cy]
-        ln.line[x].ch = outch
-        ln.line[x].attr = attr
-        _mark_window_dirty(win, cy, x, x + 1)
+        _store_cell_unchecked(win, cy, x, outch, attr)
     return 0
 
 

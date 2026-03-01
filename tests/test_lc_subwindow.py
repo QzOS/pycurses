@@ -26,6 +26,7 @@ def test_subwin_creation_is_relative_to_parent():
     assert sub is not None
     assert sub.parent is parent
     assert sub.root is parent
+    assert parent.root is parent
     assert sub.begy == 3
     assert sub.begx == 5
     assert sub.pary == 1
@@ -137,6 +138,7 @@ def test_nested_subwin_root_tracks_top_window():
     assert child is not None
     assert grand is not None
     assert child.root is parent
+    assert parent.root is parent
     assert grand.root is parent
     assert grand.parent is child
     assert grand.begy == 2

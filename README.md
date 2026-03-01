@@ -101,6 +101,7 @@ A window currently contains:
 - optional parent/root relationship
 - parent-relative origin: `pary`, `parx`
 - lifecycle state: `alive`
+- top-level root identity: `root`
 - child list for recursive teardown
 
 Subwindows share backing cells with their parent. They do not own independent cell storage.
@@ -165,6 +166,18 @@ The public API should remain platform-neutral.
 
 The window layer owns logical drawing semantics.
 
+### Root identity rule
+
+Every live window has a non-`None` `root`.
+
+That means:
+
+- for a top-level window, `root is self`
+- for a derived window, `root` names the top-level backing root
+- `parent is None` means the window is top-level
+- `root is self` means the window is the top-level root object for its current backing topology
+- dead windows clear `root`
+
 ### Cursor progression rule
 
 The current cursor policy is saturating at the last writable cell.
@@ -212,6 +225,7 @@ Subwindows are part of the intended core model.
 - `lc_subwin(parent, ...)` creates a child window in parent-relative coordinates.
 - Subwindows share `LCCell` objects with the parent backing store.
 - Shared backing means shared cell content, not a fully shared refresh state.
+- Every live derived window has a non-`None` `root`.
 - Writes through a subwindow must be visible through the parent and vice versa.
 - Dirty tracking must propagate upward from child to parent chain.
 - A child window is lifecycle-owned by its parent.
@@ -235,6 +249,7 @@ with respect to dirty state tracked on that derived window and its upward propag
 ### Lifecycle rules
 
 - Every window has an `alive` state.
+- Live windows always have a valid `root`; dead windows clear `root`.
 - Operations on dead windows return `-1` where the operation normally reports failure, or act as no-op only for internal helpers that are intentionally silent.
 - `lc_free(parent)` recursively frees the full child subtree first.
 - A child cannot outlive its parent.
@@ -243,7 +258,8 @@ with respect to dirty state tracked on that derived window and its upward propag
 
 Subwindows are tied to the current backing-store topology.
 When the root window is resized, all existing subwindows are invalidated and freed.
-Applications must rebuild derived windows after observing `LC_KEY_RESIZE`.
+The previous root backing topology is then retired and replaced by a new root window object.
+Applications must rebuild derived windows against that new root after observing `LC_KEY_RESIZE`.
 
 Refresh behavior follows the same rule:
 
@@ -252,6 +268,18 @@ Refresh behavior follows the same rule:
 - root refresh may continue on the rebuilt `stdscr`
 - the library does not reinterpret an explicit refresh of an invalidated
   derived window as a refresh of the rebuilt root window
+
+### Resize rebuild flow
+
+The current resize rebuild model is intentionally explicit:
+
+- the backend reports a real size change
+- the core invalidates all derived windows from the old backing topology
+- the core builds a replacement root window object
+- overlapping contents and cursor position are copied/clamped into that replacement
+- the old root object is retired
+- `stdscr` is rebound to the replacement root
+- applications must rebuild any derived topology they still need
 
 ### Practical refresh rule
 
@@ -366,6 +394,8 @@ These parts are stable enough to be treated as the current intended model:
 - clipped drawing primitives
 - resize surfaced as `LC_KEY_RESIZE`
 - root-oriented refresh coherence for shared-backing windows
+- live-window root identity (`root is self` for top-level windows)
+- explicit resize invalidate/rebuild/replace flow
 - shared-backing subwindows with upward dirty propagation
 - panel-content subwindow helpers
 
@@ -376,6 +406,8 @@ These areas are still under active design and should not yet be treated as froze
 - Unicode cell-width semantics
 - whether derived-window refresh should remain limited or become fully coherent across shared aliases
 - whether future window types should include copied-backing windows in addition to shared-backing subwindows
+- how far internal bulk/span helper consolidation should go
+- whether future write families should be separated more explicitly in the public API
 - richer panel/header/content zoning
 - richer attribute and color model
 - broader terminal capability modeling beyond current VT-oriented assumptions
