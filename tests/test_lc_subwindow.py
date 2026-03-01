@@ -1,7 +1,9 @@
 from lc_window import (
     lc_new,
+    lc_free,
     lc_subwin,
     lc_waddstr,
+    lc_wdraw_box,
     lc_wfill,
     lc_wmove,
     LC_DIRTY,
@@ -23,6 +25,8 @@ def test_subwin_creation_is_relative_to_parent():
     assert sub.begx == 5
     assert sub.pary == 1
     assert sub.parx == 2
+    assert sub.alive is True
+    assert sub in parent.children
 
 
 def test_subwin_rejects_out_of_bounds_creation():
@@ -95,3 +99,50 @@ def test_nested_subwin_root_tracks_top_window():
     assert grand.parent is child
     assert grand.begy == 2
     assert grand.begx == 3
+
+
+
+def test_free_child_detaches_from_parent():
+    parent = lc_new(4, 4, 0, 0)
+    child = lc_subwin(parent, 2, 2, 1, 1)
+    assert child is not None
+    assert child in parent.children
+
+    assert lc_free(child) == 0
+    assert child.alive is False
+    assert child.lines == []
+    assert child not in parent.children
+
+
+def test_free_parent_recursively_kills_children():
+    parent = lc_new(6, 6, 0, 0)
+    child = lc_subwin(parent, 4, 4, 1, 1)
+    grand = lc_subwin(child, 2, 2, 1, 1)
+
+    assert child is not None
+    assert grand is not None
+
+    assert lc_free(parent) == 0
+
+    assert parent.alive is False
+    assert child.alive is False
+    assert grand.alive is False
+    assert parent.lines == []
+    assert child.lines == []
+    assert grand.lines == []
+
+
+def test_operations_on_dead_window_fail():
+    win = lc_new(3, 3, 0, 0)
+    assert lc_free(win) == 0
+
+    assert lc_wmove(win, 0, 0) == -1
+    assert lc_waddstr(win, "x") == -1
+    assert lc_wfill(win, 0, 0, 1, 1, ".", 1) == -1
+    assert lc_wdraw_box(win, 0, 0, 2, 2) == -1
+
+
+def test_cannot_create_subwindow_from_dead_parent():
+    parent = lc_new(4, 4, 0, 0)
+    assert lc_free(parent) == 0
+    assert lc_subwin(parent, 2, 2, 0, 0) is None
