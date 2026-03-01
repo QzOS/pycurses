@@ -6,6 +6,8 @@ from lc_window import (
     lc_panel_subwin,
     lc_subwin,
     lc_waddstr,
+    lc_wdraw_hline,
+    lc_wdraw_vline,
     lc_wdraw_box,
     lc_wfill,
     lc_wmove,
@@ -88,6 +90,43 @@ def test_subwin_dirty_propagates_to_parent():
     assert parent.lines[1].flags & LC_DIRTY
     assert parent.lines[1].firstch == 3
     assert parent.lines[1].lastch == 4
+
+
+def test_subwin_hline_dirty_propagates_as_single_span():
+    parent = lc_new(4, 8, 0, 0)
+    sub = lc_subwin(parent, 2, 4, 1, 2)
+    assert sub is not None
+
+    for ln in parent.lines:
+        ln.flags = 0
+        ln.firstch = 0
+        ln.lastch = 0
+
+    assert lc_wdraw_hline(sub, 0, 0, 4, "-", 2) == 0
+    assert _row_text(parent, 1) == "  ----  "
+    assert parent.lines[1].flags & LC_DIRTY
+    assert parent.lines[1].firstch == 2
+    assert parent.lines[1].lastch == 5
+
+
+def test_subwin_vline_dirty_propagates_per_row():
+    parent = lc_new(5, 6, 0, 0)
+    sub = lc_subwin(parent, 3, 3, 1, 2)
+    assert sub is not None
+
+    for ln in parent.lines:
+        ln.flags = 0
+        ln.firstch = 0
+        ln.lastch = 0
+
+    assert lc_wdraw_vline(sub, 0, 1, 3, "|", 3) == 0
+    assert _row_text(parent, 1) == "   |  "
+    assert _row_text(parent, 2) == "   |  "
+    assert _row_text(parent, 3) == "   |  "
+    for y in (1, 2, 3):
+        assert parent.lines[y].flags & LC_DIRTY
+        assert parent.lines[y].firstch == 3
+        assert parent.lines[y].lastch == 3
 
 
 def test_nested_subwin_root_tracks_top_window():
