@@ -298,8 +298,6 @@ def ui_view_mark_dirty(view: Optional[UIView]) -> None:
 
 
 def ui_view_is_subtree_dirty(view: Optional[UIView]) -> bool:
-    child = None
-
     if view is None:
         return False
     if view.is_dirty():
@@ -520,13 +518,13 @@ def ui_view_handle_event(view: Optional[UIView], ev: UIEvent) -> int:
 
 
 def _ui_text_lines(text: str) -> list[str]:
-    if text is None or text == "":
+    if not text:
         return []
     return text.split("\n")
 
 
 def _ui_text_clip_line(text: str, width: int) -> str:
-    if text is None:
+    if not text:
         return ""
     if width <= 0:
         return ""
@@ -672,9 +670,7 @@ def ui_view_draw_self(view: Optional[UIView], ctx: Optional[UIDrawContext] = Non
 
 
 def ui_view_draw(view: Optional[UIView]) -> int:
-    child = None
     ctx = UIDrawContext()
-    child_dirty = False
 
     if view is None:
         return -1
@@ -702,9 +698,6 @@ def ui_view_draw(view: Optional[UIView]) -> int:
         view.clear_dirty()
 
     for child in view.children:
-        child_dirty = ui_view_is_subtree_dirty(child)
-        if not child_dirty:
-            continue
         if ui_view_draw(child) != 0:
             return -1
 
