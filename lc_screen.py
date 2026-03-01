@@ -1,4 +1,5 @@
 import fcntl
+import signal
 import struct
 import sys
 import termios
@@ -7,6 +8,8 @@ from typing import Optional
 
 from lc_term import (
     LC_ATTR_NONE,
+    LC_DIRTY,
+    LC_FORCEPAINT,
     Terminal,
 )
 from lc_window import (
@@ -43,6 +46,9 @@ class LCState:
         self.cur_x = 0
         self.cur_attr = LC_ATTR_NONE
 
+        self.resize_pending = False
+        self._prev_winch_handler = None
+
 
 lc = LCState()
 
@@ -56,6 +62,12 @@ def _get_winsize() -> tuple[int, int]:
     except OSError:
         pass
     return 24, 80
+
+
+def _on_sigwinch(signum, frame) -> None:
+    del signum
+    del frame
+    lc.resize_pending = True
 
 
 def lc_init() -> Optional[LCWin]:
@@ -91,6 +103,9 @@ def lc_init() -> Optional[LCWin]:
     lc.cur_x = 0
     lc.cur_attr = LC_ATTR_NONE
 
+    lc.resize_pending = False
+    lc._prev_winch_handler = signal.signal(signal.SIGWINCH, _on_sigwinch)
+
     return lc.stdscr
 
 
@@ -105,6 +120,12 @@ def lc_end() -> int:
         sys.stdout.flush()
     except OSError:
         pass
+
+    if lc._prev_winch_handler is not None:
+        try:
+            signal.signal(signal.SIGWINCH, lc._prev_winch_handler)
+        except (OSError, ValueError):
+            pass
 
     lc.term.reset_state()
     if lc.orig_term is not None:
@@ -122,12 +143,78 @@ def lc_end() -> int:
     lc.orig_term = None
     lc.cur_term = None
     lc.pushback_byte = None
+    lc.resize_pending = False
+    lc._prev_winch_handler = None
     lc.in_fd = 0
     lc.out_fd = 1
     lc.cur_y = 0
     lc.cur_x = 0
     lc.cur_attr = LC_ATTR_NONE
     return 0
+
+
+def _mark_all_dirty(win: LCWin) -> None:
+    for ln in win.lines:
+        ln.firstch = 0
+        if win.maxx > 0:
+            ln.lastch = win.maxx - 1
+        else:
+            ln.lastch = 0
+        ln.flags = LC_DIRTY | LC_FORCEPAINT
+
+
+def lc_check_resize() -> int:
+    old = lc.stdscr
+    rows, cols = _get_winsize()
+
+    if rows <= 0 or cols <= 0:
+        lc.resize_pending = False
+        return 0
+
+    if old is None:
+        lc.resize_pending = False
+        return 0
+
+    if not lc.resize_pending and rows == lc.lines and cols == lc.cols:
+        return 0
+
+    new_win = lc_new(rows, cols, old.begy, old.begx)
+    if new_win is None:
+        return -1
+
+    copy_rows = min(old.maxy, new_win.maxy)
+    copy_cols = min(old.maxx, new_win.maxx)
+
+    for y in range(copy_rows):
+        old_ln = old.lines[y]
+        new_ln = new_win.lines[y]
+        for x in range(copy_cols):
+            new_ln.line[x].ch = old_ln.line[x].ch
+            new_ln.line[x].attr = old_ln.line[x].attr
+
+    if old.cury < new_win.maxy:
+        new_win.cury = old.cury
+    else:
+        new_win.cury = new_win.maxy - 1
+
+    if old.curx < new_win.maxx:
+        new_win.curx = old.curx
+    else:
+        new_win.curx = new_win.maxx - 1
+
+    lc_free(old)
+    lc.stdscr = new_win
+    lc.lines = rows
+    lc.cols = cols
+    lc.screen = [[LCCell(' ', LC_ATTR_NONE) for _x in range(cols)] for _y in range(rows)]
+    lc.hashes = [0 for _ in range(rows)]
+    lc.cur_y = 0
+    lc.cur_x = 0
+    lc.cur_attr = LC_ATTR_NONE
+    lc.term.reset_state()
+    _mark_all_dirty(new_win)
+    lc.resize_pending = False
+    return 1
 
 
 def _apply_term() -> int:
