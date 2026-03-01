@@ -114,6 +114,8 @@ def _write_text_clipped(
 ) -> int:
     if win is None:
         return -1
+    if not win.alive:
+        return -1
     if text is None:
         return -1
     if y < 0 or y >= win.maxy:
@@ -184,14 +186,35 @@ def _write_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> Non
     _set_cell(win, y, x, ch[0], attr)
 
 
+def _cursor_at_last_cell(win: LCWin) -> bool:
+    if win.maxy <= 0 or win.maxx <= 0:
+        return False
+    return win.cury == (win.maxy - 1) and win.curx == (win.maxx - 1)
+
+
+def _cursor_writable(win: LCWin) -> bool:
+    if win.maxy <= 0 or win.maxx <= 0:
+        return False
+    if win.cury < 0 or win.cury >= win.maxy:
+        return False
+    if win.curx < 0 or win.curx >= win.maxx:
+        return False
+    return True
+
+
 def _advance_cursor(win: LCWin) -> None:
+    # Saturating cursor policy:
+    # once the cursor reaches the final writable cell, it stays there.
+    # The window layer does not expose an out-of-range end-of-window state
+    # through cury/curx.
+    if win.maxy <= 0 or win.maxx <= 0:
+        return
+    if _cursor_at_last_cell(win):
+        return
     win.curx += 1
     if win.curx >= win.maxx:
         win.curx = 0
-        if win.cury < win.maxy - 1:
-            win.cury += 1
-        else:
-            win.cury = win.maxy  # Signal that we've wrapped on the last row
+        win.cury += 1
 
 
 def _box_title_span(
@@ -222,6 +245,8 @@ def mark_dirty(ln: Optional[LCRow], start: int, end: int, maxx: int) -> None:
         return
     if end > maxx:
         end = maxx
+    if start < 0:
+        start = 0
     if end == 0 or start >= end:
         return
 
@@ -487,20 +512,18 @@ def lc_waddstr(win: Optional[LCWin], s: str) -> int:
     if not win.alive:
         return -1
     if win.maxx <= 0 or win.maxy <= 0:
-        return 0
-    if win.cury < 0 or win.cury >= win.maxy or win.curx < 0 or win.curx >= win.maxx:
+        return -1
+    if not _cursor_writable(win):
         return -1
 
     for ch in s:
-        if win.cury >= win.maxy:
-            win.cury = win.maxy - 1  # Restore cursor to last valid row
-            break
+        if not _cursor_writable(win):
+            return -1
         _set_cell(win, win.cury, win.curx, ch, LC_ATTR_NONE)
+        if _cursor_at_last_cell(win):
+            break
         _advance_cursor(win)
 
-    # Ensure cursor is within valid bounds after loop
-    if win.cury >= win.maxy:
-        win.cury = win.maxy - 1
     return 0
 
 
@@ -521,7 +544,7 @@ def lc_wput(win: Optional[LCWin], ch: int, attr: int = LC_ATTR_NONE) -> int:
         return -1
     if not win.alive:
         return -1
-    if win.curx >= win.maxx or win.cury >= win.maxy:
+    if not _cursor_writable(win):
         return -1
 
     try:
@@ -530,7 +553,8 @@ def lc_wput(win: Optional[LCWin], ch: int, attr: int = LC_ATTR_NONE) -> int:
         return -1
 
     _set_cell(win, win.cury, win.curx, outch, attr)
-    _advance_cursor(win)
+    if not _cursor_at_last_cell(win):
+        _advance_cursor(win)
     return 0
 
 

@@ -84,16 +84,30 @@ def _flush_cell_run(
 
 
 def lc_wrefresh(win: Optional[LCWin]) -> int:
-    if win is None:
+    if win is None or not win.alive:
         return -1
 
+    requested_win = win
     rc = lc_check_resize()
     if rc < 0:
         return -1
     if rc == 1:
+        # A root resize invalidates all derived windows. Do not silently
+        # replace an explicitly requested derived window with stdscr.
+        #
+        # After a rebuild:
+        #   - dead windows must fail refresh
+        #   - derived windows from the old topology must fail refresh
+        #   - only a root refresh may fall through to the rebuilt stdscr
+        if requested_win is not None:
+            if not requested_win.alive:
+                return -1
+            if requested_win.parent is not None:
+                return -1
         win = lc.stdscr
-        if win is None:
-            return -1
+
+    if win is None or not win.alive:
+        return -1
     out = bytearray()
 
     if len(lc.screen) != lc.lines or (lc.lines > 0 and len(lc.screen[0]) != lc.cols):

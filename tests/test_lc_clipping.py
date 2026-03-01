@@ -72,8 +72,9 @@ def test_waddstr_clips_when_reaching_window_end():
 
     assert _row_text(win, 0) == "   "
     assert _row_text(win, 1) == " ab"
+    # Saturating cursor policy: cursor stays at last cell
     assert win.cury == 1
-    assert win.curx == 0
+    assert win.curx == 2
 
 
 def test_waddstr_returns_error_for_invalid_cursor():
@@ -91,9 +92,9 @@ def test_waddstr_fills_exactly_to_end():
 
     assert _row_text(win, 0) == "   "
     assert _row_text(win, 1) == "abc"
-    # After writing 'c' at (1, 2), cursor wraps to (1, 0) but cury is restored to last valid row
+    # Saturating cursor policy: cursor stays at last cell (1, 2)
     assert win.cury == 1
-    assert win.curx == 0
+    assert win.curx == 2
 
 
 def test_hline_clips_left_edge():
