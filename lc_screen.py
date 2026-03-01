@@ -8,7 +8,7 @@ from lc_term import (
     LC_FORCEPAINT,
     Terminal,
 )
-from lc_platform import backend, backend_has_api
+from lc_platform import backend
 from lc_window import (
     LCCell,
     LCWin,
@@ -56,9 +56,6 @@ lc = LCState()
 
 
 def _get_winsize() -> tuple[int, int]:
-    if not backend_has_api():
-        return 24, 80
-
     return backend.get_size(lc)
 
 
@@ -69,11 +66,6 @@ def lc_init() -> Optional[LCWin]:
 
     lc.stdscr = lc_new(rows, cols, 0, 0)
     if lc.stdscr is None:
-        return None
-
-    if not backend_has_api():
-        lc_free(lc.stdscr)
-        lc.stdscr = None
         return None
 
     if backend.init(lc) != 0:
@@ -201,44 +193,30 @@ def lc_check_resize() -> int:
 
 
 def _apply_term() -> int:
-    if not backend_has_api():
-        return -1
     return backend.apply_term(lc)
 
 
 def lc_raw() -> int:
-    if not backend_has_api():
-        return -1
     return backend.raw(lc)
 
 
 def lc_noraw() -> int:
-    if not backend_has_api():
-        return -1
     return backend.noraw(lc)
 
 
 def lc_cbreak() -> int:
-    if not backend_has_api():
-        return -1
     return backend.cbreak(lc)
 
 
 def lc_nocbreak() -> int:
-    if not backend_has_api():
-        return -1
     return backend.nocbreak(lc)
 
 
 def lc_echo() -> int:
-    if not backend_has_api():
-        return -1
     return backend.echo(lc)
 
 
 def lc_noecho() -> int:
-    if not backend_has_api():
-        return -1
     return backend.noecho(lc)
 
 

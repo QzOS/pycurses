@@ -1,8 +1,10 @@
-from lc_platform import backend, backend_has_api
+from lc_platform import BACKEND_CONTRACT, backend, backend_has_api
 
 
 def test_backend_has_required_api():
     assert backend_has_api() is True
+    assert "read_byte" in BACKEND_CONTRACT
+    assert "poll_resize" in BACKEND_CONTRACT
     required = [
         "init",
         "end",
