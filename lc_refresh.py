@@ -2,7 +2,7 @@ from typing import Optional
 
 from lc_term import LC_ATTR_NONE, LC_DIRTY, LC_FORCEPAINT
 from lc_window import LCCell, LCWin
-from lc_screen import lc
+from lc_screen import lc, lc_check_resize
 
 LC_RENDER_BATCH_BYTES = 8192
 
@@ -86,6 +86,14 @@ def _flush_cell_run(
 def lc_wrefresh(win: Optional[LCWin]) -> int:
     if win is None:
         return -1
+
+    rc = lc_check_resize()
+    if rc < 0:
+        return -1
+    if rc == 1:
+        win = lc.stdscr
+        if win is None:
+            return -1
     out = bytearray()
 
     if len(lc.screen) != lc.lines or (lc.lines > 0 and len(lc.screen[0]) != lc.cols):

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from lc_term import LC_ERR, LC_OK
 from lc_input import LCInputSource, default_input
-from lc_screen import lc
+from lc_screen import lc, lc_check_resize
 
 
 LC_KT_CHAR = 1
@@ -295,6 +295,10 @@ class LCKeyParser:
 
     def readkey(self, out: LCKey) -> int:
         if out is None:
+            return LC_ERR
+
+        rc = lc_check_resize()
+        if rc < 0:
             return LC_ERR
 
         if lc.nodelay_on and not self.source.input_pending(0):

@@ -30,6 +30,8 @@ class LCInputSource:
                 continue
             except OSError:
                 return None
+            except ValueError:
+                return None
 
     def input_pending(self, timeout_ms: int) -> bool:
         timeout = None if timeout_ms < 0 else timeout_ms / 1000.0
@@ -40,6 +42,8 @@ class LCInputSource:
             except InterruptedError:
                 continue
             except OSError:
+                return False
+            except ValueError:
                 return False
 
 
