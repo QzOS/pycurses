@@ -517,3 +517,30 @@ panel-content subwindow. This keeps the model honest:
   layout or framing
 
 This is the baseline for future frame/content zoning and widget composition.
+
+### 15. C portability
+┌──────────────────────────────────────────────────────────────┐
+│           vtpy C-PORTABILITY CHECKLIST                       │
+│                                                              │
+│  ☑  All data types = flat @dataclass without inheritance     │
+│  ☑  All functions take struct* as first argument             │
+│  ☑  Return int (0/-1), never raise                           │
+│  ☑  Null-check at the top of every public function           │
+│  ☑  Constants = module-level int, never Enum                 │
+│  ☑  Booleans = bitmask flags, never bool fields              │
+│  ☑  Lists = homogeneous list[T], never dict/set              │
+│  ☑  Strings = short fixed or owned variable-length           │
+│  ☑  Variables declared at the top of the function            │
+│  ☑  No lambda/closures — function pointers + user_data       │
+│  ☑  Explicit iteration — never yield/generators              │
+│  ☑  Only os/sys/select/signal/termios/ctypes imports         │
+│  ☑  No property/classmethod/staticmethod/decorator           │
+│  ☑  No with-statements (except in outermost app layer)       │
+│  ☑  No *args/**kwargs                                        │
+│  ☑  No default mutable arguments (except field())            │
+│                                                              │
+│  For every new line of code, ask:                            │
+│  "Can I write this as a C function that takes                │
+│   a struct pointer and returns int?"                         │
+│  If no → rewrite.                                            │
+└──────────────────────────────────────────────────────────────┘
