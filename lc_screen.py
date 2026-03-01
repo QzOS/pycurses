@@ -303,17 +303,13 @@ def lc_addstr(s: str) -> int:
         return -1
     if s is None:
         return -1
-
-    for ch in s:
-        if lc_put(ord(ch)) != 0:
-            return -1
-    return 0
+    return lc_waddstr(lc.stdscr, s)
 
 
 def lc_mvaddstr(y: int, x: int, s: str) -> int:
-    if lc_move(y, x) != 0:
+    if lc.stdscr is None:
         return -1
-    return lc_addstr(s)
+    return lc_mvwaddstr(lc.stdscr, y, x, s)
 
 
 def lc_put_attr(ch: int, attr: int) -> int:

@@ -135,6 +135,8 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
     # shared-backing model. Derived-window refresh is limited to dirty state
     # tracked on that derived view.
     requested_win = win
+    requested_is_root = requested_win.parent is None
+
     rc = lc_check_resize()
     if rc < 0:
         return -1
@@ -143,12 +145,9 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
         # replace an explicitly requested derived window with stdscr.
         #
         # After a rebuild:
-        #   - dead windows must fail refresh
         #   - derived windows from the old topology must fail refresh
-        #   - only a root refresh may fall through to the rebuilt stdscr
-        if not requested_win.alive:
-            return -1
-        if requested_win.parent is not None:
+        #   - an explicit refresh of the old root may fall through to rebuilt stdscr
+        if not requested_is_root:
             return -1
         win = lc.stdscr
 
