@@ -520,28 +520,47 @@ This is the baseline for future frame/content zoning and widget composition.
 
 ### 15. C portability
 ```
-┌──────────────────────────────────────────────────────────────┐
-│           vtpy C-PORTABILITY CHECKLIST                       │
-│                                                              │
-│  ☑  All data types = flat @dataclass without inheritance     │
-│  ☑  All functions take struct* as first argument             │
-│  ☑  Return int (0/-1), never raise                           │
-│  ☑  Null-check at the top of every public function           │
-│  ☑  Constants = module-level int, never Enum                 │
-│  ☑  Booleans = bitmask flags, never bool fields              │
-│  ☑  Lists = homogeneous list[T], never dict/set              │
-│  ☑  Strings = short fixed or owned variable-length           │
-│  ☑  Variables declared at the top of the function            │
-│  ☑  No lambda/closures — function pointers + user_data       │
-│  ☑  Explicit iteration — never yield/generators              │
-│  ☑  Only os/sys/select/signal/termios/ctypes imports         │
-│  ☑  No property/classmethod/staticmethod/decorator           │
-│  ☑  No with-statements (except in outermost app layer)       │
-│  ☑  No *args/**kwargs                                        │
-│  ☑  No default mutable arguments (except field())            │
-│                                                              │
-│  For every new line of code, ask:                            │
-│  "Can I write this as a C function that takes                │
-│   a struct pointer and returns int?"                         │
-│  If no → rewrite.                                            │
-└──────────────────────────────────────────────────────────────┘```
+## 15. C portability direction
+
+A future C port remains a design goal, but it is not the primary constraint on the current Python codebase.
+
+The current rule is:
+
+- keep core data flow, contracts, and ownership models compatible with a plausible C translation
+- prefer explicit state and explicit control flow where it improves clarity
+- avoid Python features that would blur ownership, hidden control transfer, or data shape
+- do not contort clear Python code merely to imitate C syntax or C limitations prematurely
+
+In practice, this means:
+
+- backend/core/parser/window boundaries should stay explicit
+- public operations should continue to use simple success/failure style where practical
+- runtime state should remain concrete and inspectable
+- data models should remain straightforward rather than dynamically magical
+
+It does not mean that every current Python module must already look like literal C.
+
+At this stage, readable and well-structured Python is more important than forcing the implementation into an artificial C-like subset too early. If and when a real C port begins, the project can tighten the portability rules around the parts that are actually being translated.
+
+### Current portability preference
+
+When writing core code, it is still useful to ask:
+
+> can this logic be expressed later as a C function operating on explicit state?
+
+But that is a design preference, not a hard gate on every line of Python today.
+
+### What to avoid even now
+
+Even before any C port exists, we should still avoid patterns that weaken the architecture:
+
+- hidden global side effects outside the runtime/state model
+- unclear ownership or lifecycle
+- implicit cross-layer dependencies
+- parser/backend mixing
+- convenience abstractions that obscure terminal semantics
+- accidental semantic broadening that is not documented
+
+The goal is not "Python written as fake C".
+The goal is "clean Python with contracts that can survive a later systems-language port".
+```
