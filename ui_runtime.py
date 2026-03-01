@@ -10,6 +10,9 @@ from ui_event import (
     UI_CMD_REDRAW,
     UI_CMD_FOCUS_NEXT,
     UI_CMD_FOCUS_PREV,
+    UI_EVENT_NONE,
+    UI_EVENT_COMMAND,
+    UI_EVENT_RESIZE,
     UIEvent,
     ui_command_event,
     ui_event_from_key,
@@ -144,10 +147,10 @@ def ui_runtime_dispatch(rt: Optional[UIRuntime], ev: UIEvent) -> int:
     if rt is None or rt.root is None or ev is None:
         return -1
 
-    if ev.type == 0:
+    if ev.type == UI_EVENT_NONE:
         return 0
 
-    if ev.type == 3:
+    if ev.type == UI_EVENT_RESIZE:
         rows, cols = lc_get_size()
         ui_layout_assign_root(rt.root, rows, cols)
         ui_view_layout_default(rt.root)
@@ -160,7 +163,7 @@ def ui_runtime_dispatch(rt: Optional[UIRuntime], ev: UIEvent) -> int:
     if cmd != UI_CMD_NONE:
         ev = ui_command_event(cmd)
 
-    if ev.type == 2:
+    if ev.type == UI_EVENT_COMMAND:
         if ev.command == UI_CMD_FOCUS_NEXT:
             return ui_runtime_focus_cycle(rt, 1)
         if ev.command == UI_CMD_FOCUS_PREV:
