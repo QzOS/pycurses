@@ -34,12 +34,18 @@ The project is no longer a rough ANSI experiment. It now has a real internal arc
 - `LCWin` is the central window object.
 - Rows store dirty spans (`firstch`, `lastch`, `flags`).
 - Clipping is explicit and helper-based.
+- Refresh coherence is currently root-oriented.
 - Drawing helpers operate on clipped geometry instead of assuming full visibility.
 
 ### Subwindow model
 - Subwindows share backing store with their parent.
 - Dirty changes propagate upward through the parent chain.
 - Subwindows are parent-relative at creation time.
+- Shared backing currently means shared cell content, not fully shared dirty
+  metadata across every alias.
+- As a result, root refresh is the fully coherent presentation path for
+  shared-backing topologies.
+- Derived-window refresh is currently limited by the dirty state tracked on that view.
 - Each window tracks `parent`, `root`, `pary`, `parx`, `alive`, and `children`.
 
 ### Lifecycle model
@@ -52,6 +58,8 @@ The project is no longer a rough ANSI experiment. It now has a real internal arc
 - A root resize invalidates all derived subwindows.
 - The application is expected to rebuild subwindows after receiving `LC_KEY_RESIZE`.
 - This is intentional. The library does not currently attempt to remap derived windows across a resize.
+- An explicit refresh of an invalidated derived window must fail rather than
+  silently falling through to the rebuilt root.
 
 ### Panel model
 - A panel is currently a composed drawing operation:
@@ -72,6 +80,7 @@ These areas are in decent shape and can be treated as the current base:
 - clipping helpers for rects and spans
 - box, line, fill, title, and panel primitives
 - shared-backing subwindows
+- root-oriented refresh coherence
 - recursive free and child invalidation
 - resize -> `LC_KEY_RESIZE` flow
 
@@ -87,8 +96,12 @@ Current risk:
 - stale callers may still pass them into refresh
 - this can lead to index errors or undefined rendering behavior
 
-### 2. Cursor semantics at the bottom-right corner are awkward
-This is no longer using an out-of-range row sentinel.
+### 2. Shared-backing refresh semantics are intentionally asymmetric
+Shared cell content and local dirty metadata are not the same thing.
+
+Current consequence:
+- a child write propagates dirtiness upward
+- a parent or sibling write is not guaranteed to mark every overlapping child dirty
 
 The current chosen model is:
 
@@ -99,16 +112,13 @@ Current rule:
 - a successful write at the final cell leaves the cursor at that cell
 - subsequent writes continue to target that same cell until the cursor is moved
 
-### 3. Refresh semantics for subwindows are now sharper, but still need explicit tests/docs coverage
-It should be stated clearly whether `lc_wrefresh(subwin)` is a first-class supported operation or merely something that happens to work.
+This is acceptable only if the project continues to treat root refresh as the
+fully coherent presentation path for shared-backing windows.
 
-### 4. Bulk write paths are slightly split
+### 3. Bulk write paths are slightly split
 Some operations use `_set_cell()`, while `_write_text_clipped()` performs direct row writes and then marks dirty.
 This is not broken, but it is a maintenance smell.
 A cleaner internal bulk-write path would reduce drift.
-
-### 5. Resize rebuild flow should be documented as an application recipe
-The core behavior is correct enough, but the expected app-side rebuild sequence should be stated more concretely.
 
 ## Immediate next tasks
 
@@ -124,10 +134,15 @@ These are the next sensible tasks in order.
 - [x] Update `_advance_cursor()` and write paths accordingly.
 - [x] Add tests for final-column write, final-cell write, and repeated writes after the last writable cell.
 
-### Priority 3: lock down subwindow refresh semantics
-- [ ] Decide whether subwindow refresh is first-class API behavior.
-- [ ] Document that decision in `README.md` and `todo.md`.
-- [ ] Add tests that match the chosen rule.
+### Priority 3: lock down shared-backing refresh semantics
+- [x] Decide that root refresh is the fully coherent presentation path for the
+  current shared-backing model.
+- [x] Document that decision in `README.md` and `todo.md`.
+- [ ] Add tests that verify:
+  - child write -> parent refresh works
+  - parent write -> child refresh is not assumed coherent unless the child view is dirty
+  - sibling write -> sibling refresh is not assumed coherent unless local dirty state demands it
+  - refresh of an invalidated derived window fails after resize
 
 ## Next structural tasks
 
@@ -145,6 +160,9 @@ Once the immediate correctness gaps are closed, these are the next worthwhile st
 
 ### Rendering
 - [ ] Review whether dirty tracking plus hash tracking is redundant in some hot paths.
+- [ ] Decide whether future fully coherent derived refresh would require shared
+  dirty metadata, a different invalidation structure, or a different window
+  class rather than changing current shared-backing semantics in place.
 - [ ] Consider a more explicit row-level bulk emit helper.
 - [ ] Add regression tests for large dirty spans and clipped redraws.
 
@@ -164,6 +182,8 @@ These are real future items, but not the next thing to touch.
 
 ### Window hierarchy evolution
 - [ ] Decide whether to add true derived-window variants beyond the current `lc_subwin()` model.
+- [ ] If independently refreshable child windows are needed later, decide
+  whether that should mean copied backing rather than stronger shared-backing magic.
 - [ ] Decide whether child windows should ever be automatically recreated across resize.
 - [ ] If automatic remapping is ever considered, write the invariants first before touching code.
 
@@ -181,6 +201,8 @@ These are real future items, but not the next thing to touch.
 - Do not add features that blur backend/core responsibilities.
 - Do not add convenience helpers that hide unresolved semantics.
 - Do not preserve subwindows across resize unless the full remap contract is designed first.
+- Do not describe derived-window refresh as fully coherent while dirty tracking
+  remains local to each window view.
 - Prefer explicit invalidation and rebuild over clever hidden behavior.
 - Do not silently redirect an explicit refresh of an invalidated derived window
   to the rebuilt root window.
