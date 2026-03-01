@@ -44,6 +44,24 @@ def line_hash(cells: list[LCCell]) -> int:
     return h
 
 
+def _reinit_physical_cache() -> None:
+    lc.screen = [
+        [LCCell(' ', LC_ATTR_NONE) for _x in range(lc.cols)]
+        for _y in range(lc.lines)
+    ]
+    lc.hashes = [0 for _ in range(lc.lines)]
+    lc.term.clear_screen()
+    lc.cur_y = 0
+    lc.cur_x = 0
+    lc.term.reset_state()
+    lc.cur_attr = LC_ATTR_NONE
+
+
+def _note_emitted_attr(attr: int) -> None:
+    lc.cur_attr = attr
+    lc.term.note_attr(attr)
+
+
 def lc_refresh() -> int:
     return lc_wrefresh(lc.stdscr)
 
@@ -84,8 +102,7 @@ def _emit_run(
 
     if lc.cur_attr != attr:
         _append_attr(buf, attr)
-        lc.cur_attr = attr
-        lc.term.note_attr(attr)
+        _note_emitted_attr(attr)
 
     _append_text(buf, text)
     lc.cur_y = abs_y
@@ -110,6 +127,10 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
     if win is None or not win.alive:
         return -1
 
+    # Refresh uses a global physical-screen cache.
+    # Root refresh is the fully coherent presentation path for the current
+    # shared-backing model. Derived-window refresh is limited to dirty state
+    # tracked on that derived view.
     requested_win = win
     rc = lc_check_resize()
     if rc < 0:
@@ -133,13 +154,7 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
     out = bytearray()
 
     if len(lc.screen) != lc.lines or (lc.lines > 0 and len(lc.screen[0]) != lc.cols):
-        lc.screen = [[LCCell(' ', LC_ATTR_NONE) for _x in range(lc.cols)] for _y in range(lc.lines)]
-        lc.hashes = [0 for _ in range(lc.lines)]
-        lc.term.clear_screen()
-        lc.cur_y = 0
-        lc.cur_x = 0
-        lc.term.reset_state()
-        lc.cur_attr = LC_ATTR_NONE
+        _reinit_physical_cache()
 
     for y in range(win.maxy):
         abs_y = win.begy + y
@@ -150,8 +165,8 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
         if not (ln.flags & LC_DIRTY):
             continue
 
-        h = line_hash(ln.line)
         if _can_use_row_hash_shortcut(win, abs_y):
+            h = line_hash(ln.line)
             if h == lc.hashes[abs_y] and not (ln.flags & LC_FORCEPAINT):
                 ln.firstch = 0
                 ln.lastch = 0
@@ -215,8 +230,7 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
 
     if lc.cur_attr != LC_ATTR_NONE:
         _append_attr(out, LC_ATTR_NONE)
-        lc.term.note_attr(LC_ATTR_NONE)
-    lc.cur_attr = LC_ATTR_NONE
+        _note_emitted_attr(LC_ATTR_NONE)
 
     _flush(out)
     return 0

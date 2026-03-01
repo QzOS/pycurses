@@ -1,6 +1,6 @@
 import lc_refresh
 import lc_screen
-from lc_term import LC_DIRTY
+from lc_term import LC_ATTR_NONE, LC_DIRTY
 from lc_window import (
     lc_new,
     lc_subwin,
@@ -42,13 +42,13 @@ def _install_test_screen(win):
     lc_screen.lc.lines = win.maxy
     lc_screen.lc.cols = win.maxx
     lc_screen.lc.screen = [
-        [lc_screen.LCCell(" ", 0) for _x in range(win.maxx)]
+        [lc_screen.LCCell(" ", LC_ATTR_NONE) for _x in range(win.maxx)]
         for _y in range(win.maxy)
     ]
     lc_screen.lc.hashes = [0 for _ in range(win.maxy)]
     lc_screen.lc.cur_y = 0
     lc_screen.lc.cur_x = 0
-    lc_screen.lc.cur_attr = 0
+    lc_screen.lc.cur_attr = LC_ATTR_NONE
     lc_screen.lc.resize_pending = False
     lc_screen.lc.term = _DummyTerm()
 
@@ -114,7 +114,7 @@ def test_sibling_write_does_not_mark_overlapping_sibling_dirty():
     assert b.lines[0].flags == 0
 
 
-def test_parent_write_does_not_make_child_refresh_a_coherent_commit_guarantee(monkeypatch):
+def test_child_refresh_is_not_the_coherent_commit_path_after_parent_write(monkeypatch):
     root = lc_new(2, 5, 0, 0)
     assert root is not None
 
@@ -252,13 +252,13 @@ def test_wrefresh_rejects_stale_subwindow_after_resize(monkeypatch):
         lc_screen.lc.lines = replacement.maxy
         lc_screen.lc.cols = replacement.maxx
         lc_screen.lc.screen = [
-            [lc_screen.LCCell(" ", 0) for _x in range(replacement.maxx)]
+            [lc_screen.LCCell(" ", LC_ATTR_NONE) for _x in range(replacement.maxx)]
             for _y in range(replacement.maxy)
         ]
         lc_screen.lc.hashes = [0 for _ in range(replacement.maxy)]
         lc_screen.lc.cur_y = 0
         lc_screen.lc.cur_x = 0
-        lc_screen.lc.cur_attr = 0
+        lc_screen.lc.cur_attr = LC_ATTR_NONE
         lc_screen.lc.term = _DummyTerm()
 
         assert lc_free(sub) == 0
@@ -284,13 +284,13 @@ def test_wrefresh_root_after_resize_uses_rebuilt_stdscr(monkeypatch):
         lc_screen.lc.lines = replacement.maxy
         lc_screen.lc.cols = replacement.maxx
         lc_screen.lc.screen = [
-            [lc_screen.LCCell(" ", 0) for _x in range(replacement.maxx)]
+            [lc_screen.LCCell(" ", LC_ATTR_NONE) for _x in range(replacement.maxx)]
             for _y in range(replacement.maxy)
         ]
         lc_screen.lc.hashes = [0 for _ in range(replacement.maxy)]
         lc_screen.lc.cur_y = 0
         lc_screen.lc.cur_x = 0
-        lc_screen.lc.cur_attr = 0
+        lc_screen.lc.cur_attr = LC_ATTR_NONE
         lc_screen.lc.term = _DummyTerm()
         return 1
 
