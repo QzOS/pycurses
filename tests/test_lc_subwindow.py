@@ -291,3 +291,126 @@ def test_dead_children_fail_after_invalidation():
     assert lc_wmove(child, 0, 0) == -1
     assert lc_waddstr(child, "x") == -1
     assert lc_wfill(child, 0, 0, 1, 1, ".", 1) == -1
+
+
+# ---------------------------------------------------------------------------
+# Test 1.1 (complete): child write → parent refresh → screen cache updated
+# ---------------------------------------------------------------------------
+
+import lc_refresh
+import lc_screen
+from lc_term import LC_ATTR_NONE
+
+
+class _DummyTerm:
+    def __init__(self) -> None:
+        self._last_attr = None
+
+    def move_bytes(self, y: int, x: int) -> bytes:
+        return b""
+
+    def attr_bytes(self, attr: int) -> bytes:
+        return b""
+
+    def encode_text(self, s: str) -> bytes:
+        return s.encode("utf-8", "replace")
+
+    def write_bytes(self, data) -> None:
+        pass
+
+    def clear_screen(self) -> None:
+        pass
+
+    def reset_state(self) -> None:
+        self._last_attr = None
+
+    def note_attr(self, attr: int) -> None:
+        self._last_attr = attr
+
+
+def _install_test_screen(win):
+    lc_screen.lc.stdscr = win
+    lc_screen.lc.lines = win.maxy
+    lc_screen.lc.cols = win.maxx
+    lc_screen.lc.screen = [
+        [lc_screen.LCCell(" ", LC_ATTR_NONE) for _x in range(win.maxx)]
+        for _y in range(win.maxy)
+    ]
+    lc_screen.lc.hashes = [0 for _ in range(win.maxy)]
+    lc_screen.lc.cur_y = 0
+    lc_screen.lc.cur_x = 0
+    lc_screen.lc.cur_attr = LC_ATTR_NONE
+    lc_screen.lc.resize_pending = False
+    lc_screen.lc.term = _DummyTerm()
+
+
+def test_child_write_then_root_refresh_updates_screen_cache(monkeypatch):
+    """Test 1.1: write through child, refresh root, verify lc.screen is updated."""
+    root = lc_new(3, 6, 0, 0)
+    assert root is not None
+
+    child = lc_subwin(root, 1, 3, 1, 2)
+    assert child is not None
+
+    _install_test_screen(root)
+    monkeypatch.setattr(lc_refresh, "lc_check_resize", lambda: 0)
+
+    assert lc_wmove(child, 0, 0) == 0
+    assert lc_waddstr(child, "xyz") == 0
+
+    # Root refresh should be zero.
+    assert lc_refresh.lc_wrefresh(root) == 0
+
+    # Physical cache must reflect the child write at the correct absolute coords.
+    assert lc_screen.lc.screen[1][2].ch == "x"
+    assert lc_screen.lc.screen[1][3].ch == "y"
+    assert lc_screen.lc.screen[1][4].ch == "z"
+
+    # Unrelated cells must be untouched.
+    assert lc_screen.lc.screen[0][0].ch == " "
+    assert lc_screen.lc.screen[2][0].ch == " "
+
+
+# ---------------------------------------------------------------------------
+# Test 6.2: Panel content subwindow invalidates on resize like any child
+# ---------------------------------------------------------------------------
+
+def test_panel_content_subwin_invalidates_on_resize(monkeypatch):
+    """Test 6.2: panel content subwindow follows the same invalidation rules as
+    any other child window after a resize rebuild."""
+    root = lc_new(8, 12, 0, 0)
+    assert root is not None
+
+    from lc_window import lc_wdraw_panel
+    assert lc_wdraw_panel(root, 0, 0, 6, 10) == 0
+
+    content_sub = lc_panel_subwin(root, 0, 0, 6, 10)
+    assert content_sub is not None
+    assert content_sub.alive is True
+
+    _install_test_screen(root)
+
+    replacement = lc_new(10, 14, 0, 0)
+    assert replacement is not None
+
+    def _fake_check_resize():
+        lc_screen.lc.stdscr = replacement
+        lc_screen.lc.lines = replacement.maxy
+        lc_screen.lc.cols = replacement.maxx
+        lc_screen.lc.screen = [
+            [lc_screen.LCCell(" ", LC_ATTR_NONE) for _x in range(replacement.maxx)]
+            for _y in range(replacement.maxy)
+        ]
+        lc_screen.lc.hashes = [0 for _ in range(replacement.maxy)]
+        lc_screen.lc.cur_y = 0
+        lc_screen.lc.cur_x = 0
+        lc_screen.lc.cur_attr = LC_ATTR_NONE
+        lc_screen.lc.term = _DummyTerm()
+        from lc_window import lc_free
+        lc_free(content_sub)
+        return 1
+
+    monkeypatch.setattr(lc_refresh, "lc_check_resize", _fake_check_resize)
+
+    assert lc_refresh.lc_wrefresh(content_sub) == -1
+    assert content_sub.alive is False

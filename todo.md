@@ -153,7 +153,7 @@ fully coherent presentation path for shared-backing windows.
 
 ### Priority 1: close correctness gaps
 - [x] Add an `alive` guard at the start of `lc_wrefresh()`.
-- [ ] Audit refresh-adjacent helpers for dead-window assumptions.
+- [x] Audit refresh-adjacent helpers for dead-window assumptions.
 - [x] Add tests that explicitly verify refresh on dead windows fails cleanly.
 
 ### Priority 2: fix cursor semantics
@@ -165,7 +165,7 @@ fully coherent presentation path for shared-backing windows.
 - [x] Decide that root refresh is the fully coherent presentation path for the
   current shared-backing model.
 - [x] Document that decision in `README.md` and `todo.md`.
-- [ ] Add tests that verify:
+- [x] Add tests that verify:
   - child write -> parent refresh works
   - parent write -> child refresh is not assumed coherent unless the child view is dirty
   - sibling write -> sibling refresh is not assumed coherent unless local dirty state demands it
@@ -175,10 +175,10 @@ fully coherent presentation path for shared-backing windows.
 - [x] Decide that every live window has a non-`None` `root`.
 - [x] Decide that a live top-level window has `root is self`.
 - [x] Decide that dead windows clear `root`.
-- [ ] Add or keep tests that verify root/self-root invariants across create/subwin/free/resize replacement.
-- [ ] Document write operation families more explicitly in code comments where helpers currently look interchangeable.
-- [ ] Consolidate internal write helpers into a smaller explicit hierarchy.
-- [ ] Add tests that compare bulk/span helper effects against the visible cell-state
+- [x] Add or keep tests that verify root/self-root invariants across create/subwin/free/resize replacement.
+- [x] Document write operation families more explicitly in code comments where helpers currently look interchangeable.
+- [x] Consolidate internal write helpers into a smaller explicit hierarchy.
+- [x] Add tests that compare bulk/span helper effects against the visible cell-state
   and dirty-range semantics expected for their operation family.
 
 ## Next structural tasks
