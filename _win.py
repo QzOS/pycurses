@@ -1,6 +1,6 @@
 """Windows terminal backend.
 
-Requires Windows 10 1607+ (or Windows Terminal) for VT / ANSI support.
+Requires Windows 10 1607+ (or Windows Terminal) for VT/ANSI support.
 """
 
 import ctypes
@@ -31,16 +31,24 @@ def _handle(std: int):
     return _kernel32.GetStdHandle(std)
 
 
-# Module-level state for resize polling thread
-_resize_thread: Optional[threading.Thread] = None
-_stop_resize = False
-_last_size: tuple[int, int] = (24, 80)
 _resize_lock = threading.Lock()
+
+
+def _start_resize_monitor(state) -> None:
+    """Start background resize monitor for a state instance."""
+    state._resize_stop = threading.Event()
+    state._last_size = get_size(state)
+    state._resize_thread = threading.Thread(
+        target=_poll_resize,
+        args=(state,),
+        daemon=True,
+        name="lc-win-resize",
+    )
+    state._resize_thread.start()
 
 
 def init(state) -> int:
     """Initialize terminal for Windows console with VT processing."""
-    global _resize_thread, _stop_resize, _last_size
 
     state.in_fd = sys.stdin.fileno()
     state.out_fd = sys.stdout.fileno()
@@ -48,6 +56,14 @@ def init(state) -> int:
 
     hin = _handle(_STD_INPUT_HANDLE)
     hout = _handle(_STD_OUTPUT_HANDLE)
+    # Check for invalid handles: None, 0, or -1 (INVALID_HANDLE_VALUE)
+    # 0 is rejected because GetStdHandle can return 0 for detached processes
+    if hin in (None, 0, -1) or hout in (None, 0, -1):
+        return -1
+
+    state._resize_thread = None
+    state._resize_stop = None
+    state._last_size = (24, 80)
 
     # Save original console modes
     orig_in_mode = ctypes.wintypes.DWORD()
@@ -81,38 +97,15 @@ def init(state) -> int:
 
     # Start resize polling thread
     state.resize_pending = False
-    _stop_resize = False
-    _last_size = get_size(state)
-
-    def _poll_resize():
-        global _last_size, _stop_resize
-        while not _stop_resize:
-            try:
-                sz = os.get_terminal_size(state.out_fd)
-                current_size = (sz.lines, sz.columns)
-                if current_size != _last_size and current_size[0] > 0 and current_size[1] > 0:
-                    _last_size = current_size
-                    with _resize_lock:
-                        state.resize_pending = True
-            except OSError:
-                pass
-            time.sleep(0.25)
-
-    _resize_thread = threading.Thread(target=_poll_resize, daemon=True)
-    _resize_thread.start()
-
+    _start_resize_monitor(state)
     return 0
 
 
 def end(state) -> int:
     """Restore terminal to original state."""
-    global _resize_thread, _stop_resize
 
     # Stop resize polling thread
-    _stop_resize = True
-    if _resize_thread is not None:
-        _resize_thread.join(timeout=1.0)
-        _resize_thread = None
+    _stop_resize_monitor(state)
 
     if state.orig_term is not None:
         orig_in_mode, orig_out_mode, hin, hout = state.orig_term
@@ -126,6 +119,8 @@ def end(state) -> int:
     state.cur_term = None
     with _resize_lock:
         state.resize_pending = False
+    state._resize_stop = None
+    state._last_size = (24, 80)
     state.in_fd = 0
     state.out_fd = 1
     return 0
@@ -137,7 +132,7 @@ def get_size(state) -> tuple[int, int]:
         sz = os.get_terminal_size(state.out_fd)
         if sz.lines > 0 and sz.columns > 0:
             return sz.lines, sz.columns
-    except OSError:
+    except (OSError, ValueError):
         pass
     return 24, 80
 
@@ -149,16 +144,16 @@ def read_byte(state):
         state.pushback_byte = None
         return ch
 
-    # Use msvcrt for console input on Windows
+    # Use msvcrt for console input on Windows.
     while True:
         try:
             if msvcrt.kbhit():
                 ch = msvcrt.getch()
                 if len(ch) >= 1:
                     return ch[0]
-                # Empty getch response (shouldn't happen), continue waiting
+                # Empty getch response should not happen; retry.
             else:
-                # No input available, yield to allow other threads
+                # No input available; yield to other threads.
                 time.sleep(0.001)
         except (OSError, ValueError):
             return None
@@ -175,21 +170,27 @@ def input_pending(state, timeout_ms: int) -> bool:
         return True
 
     if timeout_ms < 0:
-        # Indefinite wait - use longer sleep to reduce CPU usage
-        while True:
-            if msvcrt.kbhit():
-                return True
-            time.sleep(0.01)
+        try:
+            while True:
+                if msvcrt.kbhit():
+                    return True
+                time.sleep(0.01)
+        except (OSError, ValueError):
+            return False
     elif timeout_ms == 0:
-        # Immediate check
-        return msvcrt.kbhit()
+        try:
+            return msvcrt.kbhit()
+        except (OSError, ValueError):
+            return False
     else:
-        # Wait with timeout
         deadline = time.monotonic() + (timeout_ms / 1000.0)
-        while time.monotonic() < deadline:
-            if msvcrt.kbhit():
-                return True
-            time.sleep(0.001)
+        try:
+            while time.monotonic() < deadline:
+                if msvcrt.kbhit():
+                    return True
+                time.sleep(0.001)
+        except (OSError, ValueError):
+            return False
         return False
 
 
@@ -213,3 +214,36 @@ def apply_term(state) -> int:
     Returns 0 to indicate success.
     """
     return 0
+
+
+def _stop_resize_monitor(state) -> None:
+    """Stop background resize monitor for a state instance."""
+    stop = getattr(state, "_resize_stop", None)
+    thread = getattr(state, "_resize_thread", None)
+
+    if stop is not None:
+        stop.set()
+    if thread is not None:
+        thread.join(timeout=1.0)
+        state._resize_thread = None
+
+
+def _poll_resize(state) -> None:
+    """Poll terminal size changes and set resize_pending."""
+    stop = getattr(state, "_resize_stop", None)
+    if stop is None:
+        return
+
+    while not stop.is_set():
+        try:
+            sz = os.get_terminal_size(state.out_fd)
+            current_size = (sz.lines, sz.columns)
+            if current_size[0] > 0 and current_size[1] > 0:
+                if current_size != state._last_size:
+                    state._last_size = current_size
+                    with _resize_lock:
+                        state.resize_pending = True
+        except (OSError, ValueError):
+            pass
+
+        stop.wait(0.25)
