@@ -118,6 +118,8 @@ def lc_end() -> int:
 
     lc.screen = []
     lc.hashes = []
+    lc.orig_term = None
+    lc.cur_term = None
     lc.pushback_byte = None
     lc.cur_y = 0
     lc.cur_x = 0
