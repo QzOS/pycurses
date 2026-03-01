@@ -105,6 +105,47 @@ def _interior_rect(y: int, x: int, height: int, width: int) -> tuple[int, int, i
     return y + 1, x + 1, height - 2, width - 2
 
 
+def _write_hspan(
+    win: Optional[LCWin],
+    y: int,
+    start: int,
+    end: int,
+    ch: str,
+    attr: int,
+) -> None:
+    if win is None:
+        return
+    if not win.alive:
+        return
+    if y < 0 or y >= win.maxy:
+        return
+    if start < 0 or end > win.maxx or start >= end:
+        return
+    if not ch:
+        return
+
+    outch = ch[0]
+    ln = win.lines[y]
+    for x in range(start, end):
+        ln.line[x].ch = outch
+        ln.line[x].attr = attr
+
+    _mark_window_dirty(win, y, start, end)
+
+
+def _write_hspan_text(win: Optional[LCWin], y: int, start: int, text: str, attr: int) -> None:
+    if win is None or not win.alive or text is None or not text:
+        return
+    end = start + len(text)
+    if y < 0 or y >= win.maxy or start < 0 or end > win.maxx or start >= end:
+        return
+    ln = win.lines[y]
+    for i, x in enumerate(range(start, end)):
+        ln.line[x].ch = text[i]
+        ln.line[x].attr = attr
+    _mark_window_dirty(win, y, start, end)
+
+
 def _write_text_clipped(
     win: Optional[LCWin],
     y: int,
@@ -128,10 +169,7 @@ def _write_text_clipped(
         return 0
 
     src_off = start - x
-    for i, cx in enumerate(range(start, end)):
-        ln.line[cx].ch = text[src_off + i]
-        ln.line[cx].attr = attr
-    _mark_window_dirty(win, y, start, end)
+    _write_hspan_text(win, y, start, text[src_off:src_off + (end - start)], attr)
     return 0
 
 
@@ -177,6 +215,8 @@ def _set_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
 
 def _write_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
     if win is None:
+        return
+    if not win.alive:
         return
     if y < 0 or y >= win.maxy or x < 0 or x >= win.maxx:
         return
@@ -444,11 +484,7 @@ def fill_rect(
         return
 
     for y in range(ys, ye):
-        ln = win.lines[y]
-        for x in range(xs, xe):
-            ln.line[x].ch = ch[0]
-            ln.line[x].attr = attr
-        _mark_window_dirty(win, y, xs, xe)
+        _write_hspan(win, y, xs, xe, ch, attr)
 
 
 def lc_wclear(win: Optional[LCWin]) -> int:
@@ -585,8 +621,7 @@ def lc_wdraw_hline(
     if ln is None or start >= end:
         return 0
 
-    for cx in range(start, end):
-        _set_cell(win, y, cx, ch[0], attr)
+    _write_hspan(win, y, start, end, ch, attr)
     return 0
 
 
@@ -611,8 +646,12 @@ def lc_wdraw_vline(
     if start >= end:
         return 0
 
+    outch = ch[0]
     for cy in range(start, end):
-        _set_cell(win, cy, x, ch[0], attr)
+        ln = win.lines[cy]
+        ln.line[x].ch = outch
+        ln.line[x].attr = attr
+        _mark_window_dirty(win, cy, x, x + 1)
     return 0
 
 
