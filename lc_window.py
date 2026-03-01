@@ -220,6 +220,9 @@ def lc_waddstr(win: Optional[LCWin], s: str) -> int:
         ln.line[win.curx].attr = LC_ATTR_NONE
         mark_dirty(ln, win.curx, win.curx + 1, win.maxx)
         _advance_cursor(win)
+    # Ensure cursor is within valid bounds after loop
+    if win.cury >= win.maxy:
+        win.cury = win.maxy - 1
     return 0
 
 

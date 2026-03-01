@@ -51,6 +51,19 @@ def test_waddstr_returns_error_for_invalid_cursor():
     assert lc_waddstr(win, "x") == -1
 
 
+def test_waddstr_fills_exactly_to_end():
+    """Test writing exactly enough chars to fill to the last cell."""
+    win = lc_new(2, 3, 0, 0)
+    assert lc_wmove(win, 1, 0) == 0
+    assert lc_waddstr(win, "abc") == 0
+
+    assert _row_text(win, 0) == "   "
+    assert _row_text(win, 1) == "abc"
+    # After writing 'c' at (1, 2), cursor wraps to (1, 0) but cury is restored to last valid row
+    assert win.cury == 1
+    assert win.curx == 0
+
+
 def test_hline_clips_left_edge():
     win = lc_new(3, 5, 0, 0)
     assert lc_wdraw_hline(win, 1, -2, 5, "-", LC_ATTR_NONE) == 0
