@@ -35,6 +35,7 @@ def _handle(std: int):
 _resize_thread: Optional[threading.Thread] = None
 _stop_resize = False
 _last_size: tuple[int, int] = (24, 80)
+_resize_lock = threading.Lock()
 
 
 def init(state) -> int:
@@ -91,7 +92,8 @@ def init(state) -> int:
                 current_size = (sz.lines, sz.columns)
                 if current_size != _last_size and current_size[0] > 0 and current_size[1] > 0:
                     _last_size = current_size
-                    state.resize_pending = True
+                    with _resize_lock:
+                        state.resize_pending = True
             except OSError:
                 pass
             time.sleep(0.25)
@@ -108,7 +110,9 @@ def end(state) -> int:
 
     # Stop resize polling thread
     _stop_resize = True
-    _resize_thread = None
+    if _resize_thread is not None:
+        _resize_thread.join(timeout=1.0)
+        _resize_thread = None
 
     if state.orig_term is not None:
         orig_in_mode, orig_out_mode, hin, hout = state.orig_term
@@ -120,7 +124,8 @@ def end(state) -> int:
 
     state.orig_term = None
     state.cur_term = None
-    state.resize_pending = False
+    with _resize_lock:
+        state.resize_pending = False
     state.in_fd = 0
     state.out_fd = 1
     return 0
@@ -149,8 +154,9 @@ def read_byte(state):
         try:
             if msvcrt.kbhit():
                 ch = msvcrt.getch()
-                if len(ch) == 1:
+                if len(ch) >= 1:
                     return ch[0]
+                # Empty getch response (shouldn't happen), continue waiting
             else:
                 # No input available, yield to allow other threads
                 time.sleep(0.001)
@@ -169,11 +175,11 @@ def input_pending(state, timeout_ms: int) -> bool:
         return True
 
     if timeout_ms < 0:
-        # Indefinite wait
+        # Indefinite wait - use longer sleep to reduce CPU usage
         while True:
             if msvcrt.kbhit():
                 return True
-            time.sleep(0.001)
+            time.sleep(0.01)
     elif timeout_ms == 0:
         # Immediate check
         return msvcrt.kbhit()
@@ -189,12 +195,14 @@ def input_pending(state, timeout_ms: int) -> bool:
 
 def poll_resize(state) -> bool:
     """Check if a resize event occurred."""
-    return bool(state.resize_pending)
+    with _resize_lock:
+        return bool(state.resize_pending)
 
 
 def clear_resize(state) -> None:
     """Clear the resize pending flag."""
-    state.resize_pending = False
+    with _resize_lock:
+        state.resize_pending = False
 
 
 def apply_term(state) -> int:
