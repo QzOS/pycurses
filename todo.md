@@ -259,4 +259,3 @@ For now, the most accurate description is:
 > byte-oriented input decoding, dirty-region rendering, and a lightweight
 > shared-backing window model.
 
-That is a much better north star than trying to be a generic clone of curses.
