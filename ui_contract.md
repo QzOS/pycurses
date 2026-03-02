@@ -346,7 +346,7 @@ Useful invalidation levels later may be:
 - layout recalculation
 - full root redraw
 
-You do not need all of them on day one, but the model should allow them.
+Do not need all of them on day one, but the model should allow them.
 
 ## 10.2 Commit rule
 
@@ -442,7 +442,7 @@ A sane future split could look like this:
 - `ui_runtime.py` - root dispatch, invalidation, redraw commit
 - `ui_controls.py` or later-specific modules for reusable views
 
-You do not need to build all of that now.
+Do not need to build all of that now.
 But this is the direction that avoids a mess.
 
 ## 14. What to keep out of the core
