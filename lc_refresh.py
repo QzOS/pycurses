@@ -1,7 +1,7 @@
 from typing import Optional
 
 from lc_term import LC_ATTR_NONE, LC_DIRTY, LC_FORCEPAINT
-from lc_window import LCCell, LCWin
+from lc_window import LCCell, LCRow, LCWin
 from lc_screen import lc, lc_check_resize
 
 LC_RENDER_BATCH_BYTES = 8192
@@ -60,7 +60,7 @@ def _reinit_physical_cache() -> None:
     lc.cur_attr = LC_ATTR_NONE
 
 
-def _dirty_span_for_row(win: LCWin, ln, abs_y: int) -> tuple[int, int]:
+def _dirty_span_for_row(win: LCWin, ln: LCRow, abs_y: int) -> tuple[int, int]:
     if abs_y < 0 or abs_y >= lc.lines:
         return 0, 0
 
@@ -73,7 +73,7 @@ def _dirty_span_for_row(win: LCWin, ln, abs_y: int) -> tuple[int, int]:
     return start_x, end_x
 
 
-def _clear_row_dirty(ln) -> None:
+def _clear_row_dirty(ln: LCRow) -> None:
     ln.firstch = 0
     ln.lastch = 0
     ln.flags = 0

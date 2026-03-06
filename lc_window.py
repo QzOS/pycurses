@@ -622,7 +622,6 @@ def lc_wclrtoeol(win: Optional[LCWin]) -> int:
         return -1
     fill_rect(win, win.cury, win.curx, win.cury + 1, win.maxx, ' ', LC_ATTR_NONE)
     return 0
-    return 0
 
 
 def lc_wfill(

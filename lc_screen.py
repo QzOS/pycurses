@@ -107,8 +107,9 @@ def lc_init() -> Optional[LCWin]:
         lc.term.use_alternate_screen(True)
         entered_alt = True
         lc.term.set_wrap(False)
-        if lc_keypad(True) != 0:
-            raise OSError("failed to enable keypad transmit")
+        rc = lc_keypad(True)
+        if rc != 0:
+            raise OSError(f"lc_keypad(True) failed with return code {rc}")
         lc.term.clear_screen()
         lc.term.show_cursor(False)
         _reset_render_cache(rows, cols)
