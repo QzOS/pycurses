@@ -1,7 +1,7 @@
 from typing import Optional
 
 from lc_term import LC_ATTR_NONE, LC_DIRTY, LC_FORCEPAINT
-from lc_window import LCCell, LCWin
+from lc_window import LCCell, LCRow, LCWin
 from lc_screen import lc, lc_check_resize
 
 LC_RENDER_BATCH_BYTES = 8192
@@ -58,6 +58,31 @@ def _reinit_physical_cache() -> None:
     lc.cur_x = 0
     lc.term.reset_state()
     lc.cur_attr = LC_ATTR_NONE
+
+
+def _dirty_span_for_row(win: LCWin, ln: LCRow, abs_y: int) -> tuple[int, int]:
+    if abs_y < 0 or abs_y >= lc.lines:
+        return 0, 0
+
+    start_x = max(0, int(ln.firstch))
+    end_x = min(win.maxx, int(ln.lastch) + 1)
+
+    if start_x >= end_x:
+        return 0, 0
+
+    return start_x, end_x
+
+
+def _clear_row_dirty(ln: LCRow) -> None:
+    ln.firstch = 0
+    ln.lastch = 0
+    ln.flags = 0
+
+
+def _sync_physical_cell(abs_y: int, abs_x: int, cell: LCCell) -> None:
+    scr = lc.screen[abs_y][abs_x]
+    scr.ch = cell.ch
+    scr.attr = cell.attr
 
 
 def _note_emitted_attr(attr: int) -> None:
@@ -170,14 +195,14 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
         if _can_use_row_hash_shortcut(win, abs_y):
             h = line_hash(ln.line)
             if h == lc.hashes[abs_y] and not (ln.flags & LC_FORCEPAINT):
-                ln.firstch = 0
-                ln.lastch = 0
-                ln.flags = 0
+                _clear_row_dirty(ln)
                 continue
 
             lc.hashes[abs_y] = h
-        start_x = max(0, ln.firstch)
-        end_x = min(win.maxx, ln.lastch + 1)
+        start_x, end_x = _dirty_span_for_row(win, ln, abs_y)
+        if start_x >= end_x:
+            _clear_row_dirty(ln)
+            continue
         run_start_x = -1
         run_cells: list[LCCell] = []
 
@@ -186,7 +211,7 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
             if abs_x >= lc.cols:
                 _flush_cell_run(out, abs_y, run_start_x, run_cells)
                 run_start_x = -1
-                run_cells = []
+                run_cells.clear()
                 continue
 
             cell = ln.line[x]
@@ -194,7 +219,7 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
             if scr.ch == cell.ch and scr.attr == cell.attr:
                 _flush_cell_run(out, abs_y, run_start_x, run_cells)
                 run_start_x = -1
-                run_cells = []
+                run_cells.clear()
                 continue
 
             if not run_cells:
@@ -210,7 +235,7 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
                     run_start_x = abs_x
                     run_cells = [cell]
 
-            lc.screen[abs_y][abs_x] = LCCell(cell.ch, cell.attr)
+            _sync_physical_cell(abs_y, abs_x, cell)
 
         _flush_cell_run(out, abs_y, run_start_x, run_cells)
 
@@ -219,9 +244,7 @@ def lc_wrefresh(win: Optional[LCWin]) -> int:
         if len(out) >= LC_RENDER_BATCH_BYTES:
             _flush(out)
 
-        ln.firstch = 0
-        ln.lastch = 0
-        ln.flags = 0
+        _clear_row_dirty(ln)
 
     final_y = win.begy + win.cury
     final_x = win.begx + win.curx

@@ -35,6 +35,74 @@ class LCWin:
     lines: list[LCRow] = field(default_factory=list)
 
 
+def _is_live_window(win: Optional[LCWin]) -> bool:
+    return win is not None and win.alive
+
+
+def _has_storage_shape(win: LCWin) -> bool:
+    if len(win.lines) != win.maxy:
+        return False
+    for ln in win.lines:
+        if len(ln.line) != win.maxx:
+            return False
+    return True
+
+
+def _root_consistent(win: LCWin) -> bool:
+    if not win.alive:
+        return False
+
+    if win.root is None:
+        return False
+
+    if win.parent is None:
+        return win.root is win
+
+    return win.root is not None and win.root.alive
+
+
+def _window_invariants_hold(win: Optional[LCWin]) -> bool:
+    if win is None:
+        return False
+    if not win.alive:
+        return False
+    if win.maxy <= 0 or win.maxx <= 0:
+        return False
+    if not _has_storage_shape(win):
+        return False
+    if not _root_consistent(win):
+        return False
+    return True
+
+
+def _mark_row_dirty_span(win: LCWin, y: int, start: int, end: int) -> None:
+    if not win.alive:
+        return
+    if y < 0 or y >= win.maxy:
+        return
+    mark_dirty(win.lines[y], start, end, win.maxx)
+
+
+def _mark_window_dirty_rows(
+    win: Optional[LCWin],
+    y_start: int,
+    y_end: int,
+    start: int,
+    end: int,
+) -> None:
+    if win is None or not win.alive:
+        return
+    if y_start >= y_end:
+        return
+
+    ys, ye = _clip_range(y_start, y_end - y_start, win.maxy)
+    if ys >= ye:
+        return
+
+    for y in range(ys, ye):
+        _mark_window_dirty(win, y, start, end)
+
+
 def _clip_range(start: int, length: int, limit: int) -> tuple[int, int]:
     if length <= 0 or limit <= 0:
         return 0, 0
@@ -106,7 +174,7 @@ def _interior_rect(y: int, x: int, height: int, width: int) -> tuple[int, int, i
 
 
 def _store_cell_unchecked(win: LCWin, y: int, x: int, ch: str, attr: int) -> None:
-    # Preconditions (caller must guarantee):
+    # Preconditions:
     # - win is alive and win.lines is populated
     # - 0 <= y < win.maxy, 0 <= x < win.maxx
     # - ch is non-empty
@@ -124,7 +192,7 @@ def _store_hspan_char_unchecked(
     ch: str,
     attr: int,
 ) -> None:
-    # Preconditions (caller must guarantee):
+    # Preconditions:
     # - win is alive and win.lines is populated
     # - 0 <= y < win.maxy, 0 <= start < end <= win.maxx
     # - ch is non-empty
@@ -137,10 +205,11 @@ def _store_hspan_char_unchecked(
 
 
 def _store_hspan_text_unchecked(win: LCWin, y: int, start: int, text: str, attr: int) -> None:
-    # Preconditions (caller must guarantee):
+    # Preconditions:
     # - win is alive and win.lines is populated
     # - 0 <= y < win.maxy, 0 <= start, start + len(text) <= win.maxx
     # - text is non-empty
+    # Dirty marking is intentionally amortized to one span for the whole write.
     end = start + len(text)
     ln = win.lines[y]
     for i, x in enumerate(range(start, end)):
@@ -157,9 +226,7 @@ def _write_hspan(
     ch: str,
     attr: int,
 ) -> None:
-    if win is None:
-        return
-    if not win.alive:
+    if not _is_live_window(win):
         return
     if y < 0 or y >= win.maxy:
         return
@@ -172,7 +239,7 @@ def _write_hspan(
 
 
 def _write_hspan_text(win: Optional[LCWin], y: int, start: int, text: str, attr: int) -> None:
-    if win is None or not win.alive or text is None or not text:
+    if not _is_live_window(win) or text is None or not text:
         return
     end = start + len(text)
     if y < 0 or y >= win.maxy or start < 0 or end > win.maxx or start >= end:
@@ -187,9 +254,7 @@ def _write_text_clipped(
     text: str,
     attr: int,
 ) -> int:
-    if win is None:
-        return -1
-    if not win.alive:
+    if not _is_live_window(win):
         return -1
     if text is None:
         return -1
@@ -209,22 +274,20 @@ def _write_text_clipped(
 
 def _mark_window_dirty(win: Optional[LCWin], y: int, start: int, end: int) -> None:
     # Propagate a dirty span upward through the parent chain.
-    # Each ancestor row is marked dirty for the corresponding absolute span.
-    # The loop guards against a dead window mid-chain (safe for partial frees)
-    # and against a coordinate that falls outside a parent's bounds.
+    # Shared-backing windows keep independent dirty metadata, so every write
+    # must mark the local row and then the parent-relative span in ancestors.
     cur = win
     cy = y
     cs = start
     ce = end
 
     while cur is not None:
-        if not cur.alive:
+        if not _window_invariants_hold(cur):
             return
         if cy < 0 or cy >= cur.maxy:
             return
 
-        ln = cur.lines[cy]
-        mark_dirty(ln, cs, ce, cur.maxx)
+        _mark_row_dirty_span(cur, cy, cs, ce)
 
         parent = cur.parent
         if parent is None:
@@ -239,9 +302,7 @@ def _mark_window_dirty(win: Optional[LCWin], y: int, start: int, end: int) -> No
 def _set_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
     # Internal single-cell write used by cursor-driven and drawing helpers.
     # Validates bounds and aliveness, then delegates to the unchecked writer.
-    if win is None:
-        return
-    if not win.alive:
+    if not _is_live_window(win):
         return
     if y < 0 or y >= win.maxy or x < 0 or x >= win.maxx:
         return
@@ -269,6 +330,14 @@ def _cursor_writable(win: LCWin) -> bool:
     if win.curx < 0 or win.curx >= win.maxx:
         return False
     return True
+
+
+def _cursor_strictly_valid(win: Optional[LCWin]) -> bool:
+    if win is None:
+        return False
+    if not win.alive:
+        return False
+    return _cursor_writable(win)
 
 
 def _advance_cursor(win: LCWin) -> None:
@@ -365,6 +434,8 @@ def lc_new(nlines: int, ncols: int, begin_y: int, begin_x: int) -> Optional[LCWi
         lines=lines
     )
     win.root = win
+    if not _window_invariants_hold(win):
+        return None
     return win
 
 
@@ -375,9 +446,7 @@ def lc_subwin(
     begin_y: int,
     begin_x: int,
 ) -> Optional[LCWin]:
-    if parent is None:
-        return None
-    if not parent.alive:
+    if not _window_invariants_hold(parent):
         return None
     if nlines <= 0 or ncols <= 0:
         return None
@@ -420,6 +489,8 @@ def lc_subwin(
         lines=lines,
     )
     parent.children.append(sub)
+    if not _window_invariants_hold(sub):
+        return None
     return sub
 
 
@@ -430,9 +501,7 @@ def lc_panel_subwin(
     height: int,
     width: int,
 ) -> Optional[LCWin]:
-    if parent is None:
-        return None
-    if not parent.alive:
+    if not _window_invariants_hold(parent):
         return None
 
     y, x, height, width = _normalize_rect(y, x, height, width)
@@ -452,6 +521,8 @@ def lc_panel_content_rect(y: int, x: int, height: int, width: int) -> tuple[int,
 
 def _detach_from_parent(win: LCWin) -> None:
     parent = win.parent
+    if parent is not None and not parent.alive:
+        parent = None
     if parent is None:
         return
     if win in parent.children:
@@ -460,14 +531,19 @@ def _detach_from_parent(win: LCWin) -> None:
 
 
 def _free_recursive(win: LCWin) -> None:
+    if not win.alive:
+        return
+
     while win.children:
         child = win.children[-1]
         _free_recursive(child)
 
     _detach_from_parent(win)
     win.lines.clear()
+    win.children.clear()
     win.alive = False
     win.root = None
+    win.owns_storage = False
     win.pary = 0
     win.parx = 0
     win.cury = 0
@@ -475,9 +551,7 @@ def _free_recursive(win: LCWin) -> None:
 
 
 def lc_invalidate_children(win: Optional[LCWin]) -> None:
-    if win is None:
-        return
-    if not win.alive:
+    if not _is_live_window(win):
         return
 
     while win.children:
@@ -486,9 +560,7 @@ def lc_invalidate_children(win: Optional[LCWin]) -> None:
 
 
 def lc_free(win: Optional[LCWin]) -> int:
-    if win is None:
-        return -1
-    if not win.alive:
+    if not _is_live_window(win):
         return -1
     _free_recursive(win)
     return 0
@@ -511,9 +583,7 @@ def fill_rect(
     ch: str,
     attr: int = LC_ATTR_NONE,
 ) -> None:
-    if win is None:
-        return
-    if not win.alive:
+    if not _is_live_window(win):
         return
     if not ch:
         return
@@ -527,9 +597,7 @@ def fill_rect(
 
 
 def lc_wclear(win: Optional[LCWin]) -> int:
-    if win is None:
-        return -1
-    if not win.alive:
+    if not _is_live_window(win):
         return -1
     fill_rect(win, 0, 0, win.maxy, win.maxx, ' ', LC_ATTR_NONE)
     win.cury = 0
@@ -538,9 +606,7 @@ def lc_wclear(win: Optional[LCWin]) -> int:
 
 
 def lc_wclrtobot(win: Optional[LCWin]) -> int:
-    if win is None:
-        return -1
-    if not win.alive:
+    if not _cursor_strictly_valid(win):
         return -1
 
     y = win.cury
@@ -552,9 +618,7 @@ def lc_wclrtobot(win: Optional[LCWin]) -> int:
 
 
 def lc_wclrtoeol(win: Optional[LCWin]) -> int:
-    if win is None:
-        return -1
-    if not win.alive:
+    if not _cursor_strictly_valid(win):
         return -1
     fill_rect(win, win.cury, win.curx, win.cury + 1, win.maxx, ' ', LC_ATTR_NONE)
     return 0

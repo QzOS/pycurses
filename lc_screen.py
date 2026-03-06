@@ -1,5 +1,5 @@
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import Optional
 
 from lc_term import (
@@ -62,6 +62,27 @@ class LCState:
 lc = LCState()
 
 
+def _reset_render_cache(rows: int, cols: int) -> None:
+    lc.screen = [
+        [LCCell(' ', LC_ATTR_NONE) for _x in range(cols)]
+        for _y in range(rows)
+    ]
+    lc.hashes = [0 for _ in range(rows)]
+    lc.cur_y = 0
+    lc.cur_x = 0
+    lc.cur_attr = LC_ATTR_NONE
+    lc.term.reset_state()
+
+
+def _clamp_cursor_to_window(win: LCWin) -> None:
+    if win.maxy <= 0 or win.maxx <= 0:
+        win.cury = 0
+        win.curx = 0
+        return
+    win.cury = min(max(win.cury, 0), win.maxy - 1)
+    win.curx = min(max(win.curx, 0), win.maxx - 1)
+
+
 def _get_winsize() -> tuple[int, int]:
     return backend.get_size(lc)
 
@@ -80,20 +101,33 @@ def lc_init() -> Optional[LCWin]:
         lc.stdscr = None
         return None
 
-    lc.term.reset_state()
-    lc.term.use_alternate_screen(True)
-    lc.term.set_wrap(False)
-    lc_keypad(True)
-    lc.term.clear_screen()
-    lc.term.show_cursor(False)
-
-    lc.screen = [[LCCell(' ', LC_ATTR_NONE) for _x in range(cols)] for _y in range(rows)]
-    lc.hashes = [0 for _ in range(rows)]
-    lc.cur_y = 0
-    lc.cur_x = 0
-    lc.cur_attr = LC_ATTR_NONE
-
-    return lc.stdscr
+    entered_alt = False
+    try:
+        lc.term.reset_state()
+        lc.term.use_alternate_screen(True)
+        entered_alt = True
+        lc.term.set_wrap(False)
+        rc = lc_keypad(True)
+        if rc != 0:
+            raise OSError(f"lc_keypad(True) failed with return code {rc}")
+        lc.term.clear_screen()
+        lc.term.show_cursor(False)
+        _reset_render_cache(rows, cols)
+        return lc.stdscr
+    except (OSError, ValueError):
+        with suppress(OSError, ValueError):
+            lc.term.set_attr(LC_ATTR_NONE)
+            lc.term.set_wrap(True)
+            lc_keypad(False)
+            lc.term.show_cursor(True)
+            if entered_alt:
+                lc.term.use_alternate_screen(False)
+        backend.end(lc)
+        lc.term.reset_state()
+        lc_free(lc.stdscr)
+        lc.stdscr = None
+        _reset_render_cache(0, 0)
+        return None
 
 
 def lc_subwindow(nlines: int, ncols: int, begin_y: int, begin_x: int) -> Optional[LCWin]:
@@ -139,28 +173,29 @@ def lc_get_panel_content_rect(y: int, x: int, height: int, width: int) -> tuple[
 
 def lc_end() -> int:
     try:
-        lc.term.set_attr(LC_ATTR_NONE)
-        lc.term.set_wrap(True)
-        lc_keypad(False)
-        lc.term.show_cursor(True)
-        lc.term.use_alternate_screen(False)
-        sys.stdout.flush()
+        with suppress(OSError, ValueError):
+            lc.term.set_attr(LC_ATTR_NONE)
+            lc.term.set_wrap(True)
+            lc_keypad(False)
+            lc.term.show_cursor(True)
+            lc.term.use_alternate_screen(False)
+            sys.stdout.flush()
     except OSError:
         pass
+    finally:
+        lc.term.reset_state()
+        backend.end(lc)
 
-    lc.term.reset_state()
-    backend.end(lc)
+        if lc.stdscr is not None:
+            lc_free(lc.stdscr)
+            lc.stdscr = None
 
-    if lc.stdscr is not None:
-        lc_free(lc.stdscr)
-        lc.stdscr = None
-
-    lc.screen = []
-    lc.hashes = []
-    lc.pushback_byte = None
-    lc.cur_y = 0
-    lc.cur_x = 0
-    lc.cur_attr = LC_ATTR_NONE
+        lc.screen = []
+        lc.hashes = []
+        lc.pushback_byte = None
+        lc.cur_y = 0
+        lc.cur_x = 0
+        lc.cur_attr = LC_ATTR_NONE
     return 0
 
 
@@ -172,6 +207,18 @@ def _mark_all_dirty(win: LCWin) -> None:
         else:
             ln.lastch = 0
         ln.flags = LC_DIRTY | LC_FORCEPAINT
+
+
+def _copy_overlap(dst: LCWin, src: LCWin) -> None:
+    copy_rows = min(src.maxy, dst.maxy)
+    copy_cols = min(src.maxx, dst.maxx)
+
+    for y in range(copy_rows):
+        src_ln = src.lines[y]
+        dst_ln = dst.lines[y]
+        for x in range(copy_cols):
+            dst_ln.line[x].ch = src_ln.line[x].ch
+            dst_ln.line[x].attr = src_ln.line[x].attr
 
 
 def lc_is_resize_pending() -> bool:
@@ -206,36 +253,16 @@ def lc_check_resize() -> int:
     if new_win is None:
         return -1
 
-    copy_rows = min(old.maxy, new_win.maxy)
-    copy_cols = min(old.maxx, new_win.maxx)
-
-    for y in range(copy_rows):
-        old_ln = old.lines[y]
-        new_ln = new_win.lines[y]
-        for x in range(copy_cols):
-            new_ln.line[x].ch = old_ln.line[x].ch
-            new_ln.line[x].attr = old_ln.line[x].attr
-
-    if old.cury < new_win.maxy:
-        new_win.cury = old.cury
-    else:
-        new_win.cury = new_win.maxy - 1
-
-    if old.curx < new_win.maxx:
-        new_win.curx = old.curx
-    else:
-        new_win.curx = new_win.maxx - 1
+    _copy_overlap(new_win, old)
+    new_win.cury = old.cury
+    new_win.curx = old.curx
+    _clamp_cursor_to_window(new_win)
 
     lc_free(old)
     lc.stdscr = new_win
     lc.lines = rows
     lc.cols = cols
-    lc.screen = [[LCCell(' ', LC_ATTR_NONE) for _x in range(cols)] for _y in range(rows)]
-    lc.hashes = [0 for _ in range(rows)]
-    lc.cur_y = 0
-    lc.cur_x = 0
-    lc.cur_attr = LC_ATTR_NONE
-    lc.term.reset_state()
+    _reset_render_cache(rows, cols)
     _mark_all_dirty(new_win)
     lc.resize_pending = False
     return 1
