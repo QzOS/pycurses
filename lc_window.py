@@ -610,6 +610,28 @@ def lc_free(win: Optional[LCWin]) -> int:
     return 0
 
 
+def lc_wtouchline(win: Optional[LCWin], y: int, n: int = 1) -> int:
+    # Mark one or more rows dirty/forcepaint without mutating cell content.
+    # Dirty spans propagate up the parent chain so root refresh remains
+    # coherent for shared-backing subwindows.
+    if not _is_live_window(win):
+        return -1
+    if n <= 0:
+        return 0
+
+    _mark_window_dirty_rows(win, y, y + n, 0, win.maxx)
+    return 0
+
+
+def lc_wtouchwin(win: Optional[LCWin]) -> int:
+    # Mark the full window dirty/forcepaint without changing any cells.
+    if not _is_live_window(win):
+        return -1
+
+    _mark_window_dirty_rows(win, 0, win.maxy, 0, win.maxx)
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Clipped drawing/fill family
 #

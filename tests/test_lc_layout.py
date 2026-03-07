@@ -4,6 +4,8 @@ from lc_screen import (
     lc_draw_box,
     lc_draw_hline,
     lc_draw_vline,
+    lc_touchline,
+    lc_touchwin,
     lc_addstr_attr,
 )
 from lc_term import LC_ATTR_NONE, LC_ATTR_BOLD
@@ -94,3 +96,40 @@ def test_addstr_attr_writes_with_attribute():
     assert win.lines[0].line[0].attr == LC_ATTR_BOLD
     assert win.lines[0].line[1].attr == LC_ATTR_BOLD
     lc.stdscr = old_stdscr
+
+
+def test_touchline_marks_requested_stdscr_rows_dirty():
+    old_stdscr = lc.stdscr
+    win = lc_new(4, 6, 0, 0)
+    lc.stdscr = win
+    for ln in win.lines:
+        ln.flags = 0
+
+    assert lc_touchline(1, 2) == 0
+
+    assert win.lines[0].flags == 0
+    assert win.lines[1].flags != 0
+    assert win.lines[2].flags != 0
+    lc.stdscr = old_stdscr
+
+
+def test_touchwin_marks_all_stdscr_rows_dirty():
+    old_stdscr = lc.stdscr
+    win = lc_new(2, 3, 0, 0)
+    lc.stdscr = win
+    for ln in win.lines:
+        ln.flags = 0
+
+    assert lc_touchwin() == 0
+    assert all(ln.flags != 0 for ln in win.lines)
+    lc.stdscr = old_stdscr
+
+
+def test_touch_wrappers_require_stdscr():
+    old_stdscr = lc.stdscr
+    lc.stdscr = None
+    try:
+        assert lc_touchline(0, 1) == -1
+        assert lc_touchwin() == -1
+    finally:
+        lc.stdscr = old_stdscr

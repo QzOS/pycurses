@@ -13,6 +13,8 @@ from lc_window import (
     lc_wdraw_hline,
     lc_wdraw_vline,
     lc_wdraw_box,
+    lc_wtouchline,
+    lc_wtouchwin,
     lc_invalidate_children,
 )
 from lc_term import LC_ATTR_NONE, LC_ATTR_BOLD, LC_DIRTY
@@ -411,3 +413,83 @@ def test_lc_waddstr_attr_spans_multiple_rows():
     # Cursor should advance to row 2, column 0
     assert win.cury == 2
     assert win.curx == 0
+
+
+def _clear_dirty(win):
+    for ln in win.lines:
+        ln.flags = 0
+        ln.firstch = 0
+        ln.lastch = 0
+
+
+def _row_text(win, y):
+    return ''.join(c.ch for c in win.lines[y].line)
+
+
+def test_lc_wtouchline_marks_clipped_rows_dirty_without_mutation():
+    win = lc_new(4, 6, 0, 0)
+    assert win is not None
+    _clear_dirty(win)
+
+    before = [_row_text(win, y) for y in range(win.maxy)]
+    assert lc_wtouchline(win, 1, 2) == 0
+
+    assert win.lines[0].flags == 0
+    for y in (1, 2):
+        assert win.lines[y].flags & LC_DIRTY
+        assert win.lines[y].firstch == 0
+        assert win.lines[y].lastch == win.maxx - 1
+
+    after = [_row_text(win, y) for y in range(win.maxy)]
+    assert after == before
+
+
+def test_lc_wtouchline_clips_and_accepts_noop_lengths():
+    win = lc_new(3, 5, 0, 0)
+    assert win is not None
+    _clear_dirty(win)
+
+    assert lc_wtouchline(win, -1, 2) == 0
+    assert win.lines[0].flags & LC_DIRTY
+    assert win.lines[1].flags == 0
+
+    _clear_dirty(win)
+    assert lc_wtouchline(win, 1, 0) == 0
+    assert all(ln.flags == 0 for ln in win.lines)
+
+
+def test_lc_wtouchwin_marks_all_rows_dirty():
+    win = lc_new(3, 4, 0, 0)
+    assert win is not None
+    _clear_dirty(win)
+
+    assert lc_wtouchwin(win) == 0
+    for ln in win.lines:
+        assert ln.flags & LC_DIRTY
+        assert ln.firstch == 0
+        assert ln.lastch == win.maxx - 1
+
+
+def test_lc_wtouchline_propagates_to_parent_chain():
+    root = lc_new(5, 7, 0, 0)
+    assert root is not None
+    child = lc_subwin(root, 3, 4, 1, 2)
+    assert child is not None
+    _clear_dirty(root)
+    _clear_dirty(child)
+
+    assert lc_wtouchline(child, 1, 1) == 0
+
+    assert child.lines[1].flags & LC_DIRTY
+    assert child.lines[1].firstch == 0
+    assert child.lines[1].lastch == child.maxx - 1
+
+    root_row = child.pary + 1
+    assert root.lines[root_row].flags & LC_DIRTY
+    assert root.lines[root_row].firstch == child.parx
+    assert root.lines[root_row].lastch == child.parx + child.maxx - 1
+
+
+def test_lc_wtouch_apis_reject_invalid_windows():
+    assert lc_wtouchline(None, 0, 1) == -1
+    assert lc_wtouchwin(None) == -1

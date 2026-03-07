@@ -29,6 +29,8 @@ from lc_window import (
     lc_wdraw_vline,
     lc_wmove,
     lc_wput,
+    lc_wtouchline,
+    lc_wtouchwin,
 )
 
 
@@ -377,6 +379,18 @@ def lc_fill(
     if lc.stdscr is None:
         return -1
     return lc_wfill(lc.stdscr, y, x, height, width, ch, attr)
+
+
+def lc_touchline(y: int, n: int = 1) -> int:
+    if lc.stdscr is None:
+        return -1
+    return lc_wtouchline(lc.stdscr, y, n)
+
+
+def lc_touchwin() -> int:
+    if lc.stdscr is None:
+        return -1
+    return lc_wtouchwin(lc.stdscr)
 
 
 def lc_center_x(width: int, text: str) -> int:

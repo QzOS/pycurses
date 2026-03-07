@@ -230,6 +230,16 @@ These clip against the window bounds and return `0` for valid operations even wh
 - `lc_wdraw_vline()`
 - `lc_wdraw_box()`
 
+### Touch/repaint marking
+
+These request repaint without mutating content:
+
+- `lc_wtouchline(win, y, n=1)` marks a clipped row range dirty across full window width
+- `lc_wtouchwin(win)` marks the entire window dirty
+- `lc_touchline(y, n=1)` / `lc_touchwin()` apply the same behavior to `stdscr`
+- touch marking propagates dirty metadata upward through the parent chain
+- touch marking is not symmetric across overlapping siblings/children (same as other dirty metadata)
+
 ### Invariant
 
 No window operation may read or write outside the window backing store.
