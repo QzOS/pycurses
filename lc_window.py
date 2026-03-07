@@ -832,7 +832,6 @@ def lc_wdraw_vline(
     for cy in range(start, end):
         _store_cell_unchecked(win, cy, x, outch, attr)
     return 0
-    return 0
 
 
 def lc_wdraw_box(
