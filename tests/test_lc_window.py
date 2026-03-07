@@ -6,6 +6,7 @@ from lc_window import (
     lc_wmove,
     lc_wput,
     lc_waddstr,
+    lc_waddstr_attr,
     lc_mvwaddstr,
     lc_subwin,
     fill_rect,
@@ -335,3 +336,29 @@ def test_root_invariant_after_resize_replacement():
 
     assert new_root.alive is True
     assert new_root.root is new_root
+
+
+def test_lc_waddstr_attr_sets_attribute_on_written_cells():
+    win = lc_new(2, 4, 0, 0)
+    assert win is not None
+
+    assert lc_waddstr_attr(win, "ab", LC_ATTR_BOLD) == 0
+    assert win.lines[0].line[0].ch == 'a'
+    assert win.lines[0].line[1].ch == 'b'
+    assert win.lines[0].line[0].attr == LC_ATTR_BOLD
+    assert win.lines[0].line[1].attr == LC_ATTR_BOLD
+
+
+def test_lc_waddstr_attr_saturates_at_last_cell():
+    win = lc_new(1, 3, 0, 0)
+    assert win is not None
+
+    assert lc_wmove(win, 0, 1) == 0
+    assert lc_waddstr_attr(win, "XYZ", LC_ATTR_BOLD) == 0
+
+    assert win.lines[0].line[1].ch == 'X'
+    assert win.lines[0].line[2].ch == 'Y'
+    assert win.lines[0].line[1].attr == LC_ATTR_BOLD
+    assert win.lines[0].line[2].attr == LC_ATTR_BOLD
+    assert win.curx == 2
+    assert win.cury == 0
