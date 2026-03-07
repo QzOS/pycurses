@@ -195,6 +195,24 @@ The library does not currently expose a public end-of-window sentinel state thro
 
 Single-cell and bulk text writes are expected to obey the same final-cell rule.
 
+
+### Cursor-driven write completion rule
+
+Cursor-driven writes are intentionally prefix-success operations, not atomic
+all-or-nothing operations.
+
+That means:
+
+- `lc_wput()` writes one character at the current cursor if the cursor is valid
+- `lc_waddstr()` writes as much of the string as fits under the current
+  saturating cursor policy
+- if the cursor reaches the final writable cell during a bulk write, that final
+  cell is written and the operation returns success
+- any remaining suffix that would require a public end-of-window sentinel state
+  is not written
+
+This is the current intended contract.
+
 ### Strict operations
 
 These are strict and return `-1` on invalid coordinates:
