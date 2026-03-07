@@ -138,7 +138,7 @@ lc_wmove(my_window, 2, 3)  # Move cursor to row 2, col 3 in window
 
 ### `lc_put(ch: int) -> int`
 
-Write a single character at the current cursor position on the standard screen with default attributes (`LC_ATTR_NONE`). Use `lc_put_attr()` to specify custom attributes.
+Write a single character at the current cursor position on the standard screen with default attributes (`LC_ATTR_NONE`). Under the current saturating cursor policy, a write at the final writable cell succeeds and leaves the cursor at that same cell. Use `lc_put_attr()` to specify custom attributes.
 
 ```python
 from lc_screen import lc_session, lc_move, lc_put
@@ -164,7 +164,7 @@ with lc_session():
 
 ### `lc_wput(win: LCWin, ch: int, attr: int) -> int`
 
-Write a single character with attributes at the cursor position in a specific window.
+Write a single character with attributes at the cursor position in a specific window. Under the current saturating cursor policy, a write at the final writable cell succeeds and leaves the cursor at that same cell.
 
 ```python
 from lc_window import lc_wput
@@ -220,7 +220,7 @@ with lc_session():
 
 ### `lc_waddstr(win: LCWin, s: str) -> int`
 
-Write a string at the cursor position in a specific window.
+Write a string at the cursor position in a specific window. This is a cursor-driven prefix-success write under the current saturating cursor policy: if the write reaches the final writable cell, that cell is written, the cursor remains there, and the function still returns success even though the remaining suffix is not written.
 
 ```python
 from lc_window import lc_waddstr

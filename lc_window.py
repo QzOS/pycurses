@@ -39,6 +39,26 @@ def _is_live_window(win: Optional[LCWin]) -> bool:
     return win is not None and win.alive
 
 
+def _require_live_window(win: Optional[LCWin]) -> int:
+    if not _is_live_window(win):
+        return -1
+    return 0
+
+
+def _coerce_draw_char(ch: Optional[str]) -> Optional[str]:
+    if ch is None or not ch:
+        return None
+    return ch[0]
+
+
+def _valid_window_coord(win: LCWin, y: int, x: int) -> bool:
+    if y < 0 or y >= win.maxy:
+        return False
+    if x < 0 or x >= win.maxx:
+        return False
+    return True
+
+
 def _has_storage_shape(win: LCWin) -> bool:
     if len(win.lines) != win.maxy:
         return False
@@ -178,7 +198,8 @@ def _store_cell_unchecked(win: LCWin, y: int, x: int, ch: str, attr: int) -> Non
     # - win is alive and win.lines is populated
     # - 0 <= y < win.maxy, 0 <= x < win.maxx
     # - ch is non-empty
-    outch = ch[0]
+    outch = _coerce_draw_char(ch)
+    assert outch is not None
     win.lines[y].line[x].ch = outch
     win.lines[y].line[x].attr = attr
     _mark_window_dirty(win, y, x, x + 1)
@@ -196,7 +217,8 @@ def _store_hspan_char_unchecked(
     # - win is alive and win.lines is populated
     # - 0 <= y < win.maxy, 0 <= start < end <= win.maxx
     # - ch is non-empty
-    outch = ch[0]
+    outch = _coerce_draw_char(ch)
+    assert outch is not None
     ln = win.lines[y]
     for x in range(start, end):
         ln.line[x].ch = outch
@@ -304,9 +326,9 @@ def _set_cell(win: Optional[LCWin], y: int, x: int, ch: str, attr: int) -> None:
     # Validates bounds and aliveness, then delegates to the unchecked writer.
     if not _is_live_window(win):
         return
-    if y < 0 or y >= win.maxy or x < 0 or x >= win.maxx:
+    if not _valid_window_coord(win, y, x):
         return
-    if not ch:
+    if _coerce_draw_char(ch) is None:
         return
     _store_cell_unchecked(win, y, x, ch, attr)
 
@@ -655,15 +677,14 @@ def lc_wfill(
     ch: str = ' ',
     attr: int = LC_ATTR_NONE,
 ) -> int:
-    if win is None:
+    outch = _coerce_draw_char(ch)
+    if _require_live_window(win) != 0:
         return -1
-    if not win.alive:
-        return -1
-    if not ch:
+    if outch is None:
         return -1
     if height <= 0 or width <= 0:
         return 0
-    fill_rect(win, y, x, y + height, x + width, ch[0], attr)
+    fill_rect(win, y, x, y + height, x + width, outch, attr)
     return 0
 
 
@@ -673,12 +694,24 @@ def lc_wfill(
 # These helpers write at the current cursor position and advance the cursor
 # after each character. The cursor saturates at the last valid cell rather
 # than wrapping or raising an error. Use lc_wmove to reposition before writing.
+#
+# Completion semantics:
+# - These operations are not atomic all-or-nothing writes.
+# - A single-cell write at the final writable cell succeeds and leaves the
+#   cursor at that same cell.
+# - A bulk write stores the longest visible prefix permitted by the current
+#   cursor position and window bounds under the saturating cursor policy.
+# - If the bulk write reaches the final writable cell, that cell is written,
+#   the cursor remains there, and the function returns success.
+# - The API does not expose a public end-of-window sentinel cursor state, so
+#   any remaining suffix beyond that point is intentionally not written.
+# - Invalid window or invalid current cursor state still returns -1.
 # ---------------------------------------------------------------------------
 
 def lc_waddstr(win: Optional[LCWin], s: str) -> int:
-    if win is None or s is None:
+    if s is None:
         return -1
-    if not win.alive:
+    if _require_live_window(win) != 0:
         return -1
     if win.maxx <= 0 or win.maxy <= 0:
         return -1
@@ -687,6 +720,11 @@ def lc_waddstr(win: Optional[LCWin], s: str) -> int:
     if not s:
         return 0
 
+    # Prefix-success semantics:
+    # write visible characters until the cursor reaches the final writable
+    # cell. That final cell is written successfully and the cursor saturates
+    # there. The unwritten suffix, if any, is intentionally discarded because
+    # the public cursor model does not expose an out-of-range end position.
     if _cursor_at_last_cell(win):
         _set_cell(win, win.cury, win.curx, s[0], LC_ATTR_NONE)
         return 0
@@ -712,11 +750,9 @@ def lc_waddstr(win: Optional[LCWin], s: str) -> int:
 
 
 def lc_wmove(win: Optional[LCWin], y: int, x: int) -> int:
-    if win is None:
+    if _require_live_window(win) != 0:
         return -1
-    if not win.alive:
-        return -1
-    if y < 0 or y >= win.maxy or x < 0 or x >= win.maxx:
+    if not _valid_window_coord(win, y, x):
         return -1
     win.cury = y
     win.curx = x
@@ -724,9 +760,7 @@ def lc_wmove(win: Optional[LCWin], y: int, x: int) -> int:
 
 
 def lc_wput(win: Optional[LCWin], ch: int, attr: int = LC_ATTR_NONE) -> int:
-    if win is None:
-        return -1
-    if not win.alive:
+    if _require_live_window(win) != 0:
         return -1
     if not _cursor_writable(win):
         return -1
@@ -736,6 +770,9 @@ def lc_wput(win: Optional[LCWin], ch: int, attr: int = LC_ATTR_NONE) -> int:
     except (TypeError, ValueError):
         return -1
 
+    # Single-cell success at the final writable cell is intentional.
+    # The cursor model saturates there rather than advancing to a sentinel
+    # end-of-window position.
     _set_cell(win, win.cury, win.curx, outch, attr)
     if not _cursor_at_last_cell(win):
         _advance_cursor(win)
@@ -756,11 +793,10 @@ def lc_wdraw_hline(
     ch: str = "-",
     attr: int = LC_ATTR_NONE,
 ) -> int:
-    if win is None:
+    outch = _coerce_draw_char(ch)
+    if _require_live_window(win) != 0:
         return -1
-    if not win.alive:
-        return -1
-    if not ch:
+    if outch is None:
         return -1
     if width <= 0:
         return 0
@@ -769,7 +805,7 @@ def lc_wdraw_hline(
     if ln is None or start >= end:
         return 0
 
-    _write_hspan(win, y, start, end, ch, attr)
+    _write_hspan(win, y, start, end, outch, attr)
     return 0
 
 
@@ -781,11 +817,10 @@ def lc_wdraw_vline(
     ch: str = "|",
     attr: int = LC_ATTR_NONE,
 ) -> int:
-    if win is None:
+    outch = _coerce_draw_char(ch)
+    if _require_live_window(win) != 0:
         return -1
-    if not win.alive:
-        return -1
-    if not ch:
+    if outch is None:
         return -1
     if height <= 0:
         return 0
@@ -794,9 +829,9 @@ def lc_wdraw_vline(
     if start >= end:
         return 0
 
-    outch = ch[0]
     for cy in range(start, end):
         _store_cell_unchecked(win, cy, x, outch, attr)
+    return 0
     return 0
 
 
@@ -814,13 +849,18 @@ def lc_wdraw_box(
     bl: str = "+",
     br: str = "+",
 ) -> int:
-    if win is None:
-        return -1
-    if not win.alive:
+    hch = _coerce_draw_char(hch)
+    vch = _coerce_draw_char(vch)
+    tl = _coerce_draw_char(tl)
+    tr = _coerce_draw_char(tr)
+    bl = _coerce_draw_char(bl)
+    br = _coerce_draw_char(br)
+
+    if _require_live_window(win) != 0:
         return -1
 
     y, x, height, width = _normalize_rect(y, x, height, width)
-    if not hch or not vch or not tl or not tr or not bl or not br:
+    if hch is None or vch is None or tl is None or tr is None or bl is None or br is None:
         return -1
     if height <= 0 or width <= 0:
         return 0
@@ -834,12 +874,20 @@ def lc_wdraw_box(
     top, left, bottom, right = _box_edges(y, x, height, width)
     inner_y, inner_x, inner_h, inner_w = _interior_rect(y, x, height, width)
 
-    lc_wdraw_hline(win, top, left + 1, width - 2, hch, attr)
-    lc_wdraw_hline(win, bottom, left + 1, width - 2, hch, attr)
+    rc = lc_wdraw_hline(win, top, left + 1, width - 2, hch, attr)
+    if rc != 0:
+        return rc
+    rc = lc_wdraw_hline(win, bottom, left + 1, width - 2, hch, attr)
+    if rc != 0:
+        return rc
 
     if inner_h > 0:
-        lc_wdraw_vline(win, inner_y, left, inner_h, vch, attr)
-        lc_wdraw_vline(win, inner_y, right, inner_h, vch, attr)
+        rc = lc_wdraw_vline(win, inner_y, left, inner_h, vch, attr)
+        if rc != 0:
+            return rc
+        rc = lc_wdraw_vline(win, inner_y, right, inner_h, vch, attr)
+        if rc != 0:
+            return rc
 
     _write_cell(win, top, left, tl, attr)
     _write_cell(win, top, right, tr, attr)
@@ -858,9 +906,7 @@ def lc_wdraw_box_title(
     title: str,
     attr: int = LC_ATTR_NONE,
 ) -> int:
-    if win is None:
-        return -1
-    if not win.alive:
+    if _require_live_window(win) != 0:
         return -1
 
     y, x, height, width = _normalize_rect(y, x, height, width)
@@ -895,9 +941,7 @@ def lc_wdraw_panel(
     bl: str = "+",
     br: str = "+",
 ) -> int:
-    if win is None:
-        return -1
-    if not win.alive:
+    if _require_live_window(win) != 0:
         return -1
 
     rc = lc_wdraw_box(win, y, x, height, width, frame_attr, hch, vch, tl, tr, bl, br)

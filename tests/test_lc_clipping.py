@@ -202,6 +202,29 @@ def test_wfill_nonpositive_size_is_successful_noop():
     assert lc_wfill(win, 0, 0, 2, 0, "x", 1) == 0
 
 
+def test_wfill_uses_first_character_when_given_longer_string():
+    win = lc_new(2, 4, 0, 0)
+    assert lc_wfill(win, 0, 0, 1, 4, "XY", 1) == 0
+    assert _row_text(win, 0) == "XXXX"
+
+
+def test_draw_lines_use_first_character_when_given_longer_string():
+    win = lc_new(3, 4, 0, 0)
+    assert lc_wdraw_hline(win, 0, 0, 4, "=-", LC_ATTR_NONE) == 0
+    assert lc_wdraw_vline(win, 0, 3, 3, "|!", LC_ATTR_NONE) == 0
+    assert _row_text(win, 0) == "===|"
+    assert _row_text(win, 1) == "   |"
+    assert _row_text(win, 2) == "   |"
+
+
+def test_box_characters_use_first_character_when_given_longer_strings():
+    win = lc_new(3, 5, 0, 0)
+    assert lc_wdraw_box(win, 0, 0, 3, 5, LC_ATTR_NONE, "=-", "|!", "TL", "TR", "BL", "BR") == 0
+    assert _row_text(win, 0) == "T===T"
+    assert _row_text(win, 1) == "|   |"
+    assert _row_text(win, 2) == "B===B"
+
+
 def test_box_title_span_regular_case():
     y, x, label = _box_title_span(1, 2, 4, 8, "abc")
     assert y == 1
