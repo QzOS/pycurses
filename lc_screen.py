@@ -234,7 +234,6 @@ def lc_is_resize_pending() -> bool:
     # state rather than only whatever the core has already consumed.
     if backend.poll_resize(lc):
         lc.resize_pending = True
-        return True
     return bool(lc.resize_pending)
 
 

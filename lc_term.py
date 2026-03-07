@@ -38,8 +38,10 @@ class Terminal:
         off = 0
         while off < len(data):
             nwritten = os.write(self.out_fd, data[off:])
-            if nwritten <= 0:
-                raise OSError("short write to terminal output")
+            if nwritten == 0:
+                raise OSError("write returned zero bytes")
+            if nwritten < 0:
+                raise OSError("write failed")
             off += nwritten
 
     def write(self, s: str) -> None:
