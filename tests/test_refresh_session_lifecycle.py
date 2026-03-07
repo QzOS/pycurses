@@ -1,6 +1,6 @@
 """Tests for session/backend lifecycle guards introduced in the refresh refactor.
 
-These tests verify the behaviour of:
+These tests verify the behavior of:
 - lc_check_resize and lc_is_resize_pending when backend is live but session
   is not yet fully active
 - lc_refresh_session_ready with every combination of backend_started / session_active

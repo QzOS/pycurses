@@ -694,6 +694,8 @@ def lc_addstr_centered(y: int, s: str) -> int:
 
 
 def lc_set_escdelay(ms: int) -> int:
+    # Negative delay values are not meaningful; reject them to avoid
+    # accidentally storing a value that would disable the escape timer.
     if ms < 0:
         return -1
     lc.escdelay_ms = ms
