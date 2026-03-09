@@ -125,3 +125,4 @@ def lc_panel_regions(y: int, x: int, height: int, width: int, header_height: int
         lc_panel_header_rect(y, x, height, width, header_height),
         lc_panel_content_rect(y, x, height, width, header_height),
     )
+

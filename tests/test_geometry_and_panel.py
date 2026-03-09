@@ -50,3 +50,4 @@ def test_draw_panel_with_title_uses_header_band_for_fill_zoning():
     assert _line_text(root, 2)[2:9] == " Title "
     assert _line_text(root, 2).count('.') == 0
     assert _line_text(root, 3)[2:10] == "........"
+

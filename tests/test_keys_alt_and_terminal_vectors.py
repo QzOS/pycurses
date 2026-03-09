@@ -134,3 +134,4 @@ def test_common_terminal_vectors(seq, expected):
     assert parser.readkey(out) == 0
     assert out.type == LC_KT_KEYSYM
     assert out.keysym == expected
+
