@@ -23,6 +23,29 @@ def test_rect_split_horizontal():
     assert right == (1, 7, 6, 7)
 
 
+def test_rect_splits_compose_for_dashboard_layout():
+    """A common layout flow: header + body, then body split into sidebar/main."""
+    full = (0, 0, 24, 80)
+
+    header, body = lc_rect_split_vertical(*full, top_height=3)
+    sidebar, main = lc_rect_split_horizontal(*body, left_width=20)
+
+    assert header == (0, 0, 3, 80)
+    assert body == (3, 0, 21, 80)
+    assert sidebar == (3, 0, 21, 20)
+    assert main == (3, 20, 21, 60)
+
+
+def test_rect_splits_clamp_partitions_for_layout_safety():
+    top, bottom = lc_rect_split_vertical(5, 7, 4, 10, top_height=99)
+    left, right = lc_rect_split_horizontal(5, 7, 4, 10, left_width=-5)
+
+    assert top == (5, 7, 4, 10)
+    assert bottom == (9, 7, 0, 10)
+    assert left == (5, 7, 4, 0)
+    assert right == (5, 7, 4, 10)
+
+
 def test_panel_header_and_content_rects_shift_content_down():
     assert lc_panel_header_rect(0, 0, 6, 10, 1) == (1, 1, 1, 8)
     assert lc_panel_content_rect(0, 0, 6, 10, 1) == (2, 1, 3, 8)
@@ -50,4 +73,3 @@ def test_draw_panel_with_title_uses_header_band_for_fill_zoning():
     assert _line_text(root, 2)[2:9] == " Title "
     assert _line_text(root, 2).count('.') == 0
     assert _line_text(root, 3)[2:10] == "........"
-
