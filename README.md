@@ -346,9 +346,16 @@ In practice:
 - draw through root or derived windows as needed
 - prefer refreshing the root window when shared-backing subwindows overlap or interact
 
-### Panel/content helper rules
+### Panel/header/content helper rules
 
+- A panel header, when requested, is a real interior layout region.
+- The header is not border decoration and does not live on the box edge.
+- A realized header shifts the panel content origin downward.
+- `lc_wdraw_panel(...)` follows this zoning model.
+- `lc_wdraw_box_title(...)` remains the border-decoration helper and does not
+  define a separate content origin.
 - `lc_panel_content_rect(...)` returns the interior content rect for a boxed panel.
+- `lc_panel_header_rect(...)` returns the interior header rect for a boxed panel.
 - `lc_panel_subwin(...)` creates a derived subwindow for that interior.
 - Panel-content subwindows are ordinary subwindows and therefore follow the same lifecycle and resize rules.
 
@@ -608,7 +615,7 @@ The most likely near-term directions are:
 
 ### 11.1 Better panel zoning
 
-Panel zoning now distinguishes between:
+Panel zoning now distinguishes explicitly between:
 
 - the outer frame
 - an optional interior header band
@@ -617,6 +624,36 @@ Panel zoning now distinguishes between:
 The current policy is that a header band, when requested, is part of the panel
 interior and therefore shifts the content origin downward. This makes titled
 panels and toolbar-style rows explicit instead of border-decoration only.
+
+Related drawing rule:
+
+- `lc_wdraw_panel(...)` treats a header as an interior panel region
+- `lc_wdraw_box_title(...)` is the border-title helper for decorative box labels
+
+This distinction is intentional. A panel title participates in panel zoning;
+a box title does not.
+
+Example:
+
+```python
+# Panel header: title lives in an interior header band.
+# Content starts below that band.
+lc_draw_panel(
+    1, 2, 10, 40,
+    title="Processes",
+    header_height=1,
+)
+body = lc_panel_content_subwindow(1, 2, 10, 40, header_height=1)
+
+# Box title: title is border decoration only.
+# Content geometry is still just the normal box interior.
+lc_draw_box(12, 2, 10, 40)
+lc_draw_box_title(12, 2, 10, 40, "Logs")
+logs = lc_subwindow(8, 38, 13, 3)
+```
+
+In the first case, the title participates in panel zoning.
+In the second case, the title is only a label on the border.
 
 ### 11.2 Copied-backing versus shared-backing policy
 
@@ -680,6 +717,14 @@ The project now also has a minimal UI runtime skeleton:
 
 This is not a widget toolkit yet.
 It is an architectural layer that establishes where future UI behavior belongs.
+
+### 14.0 Relationship to panel zoning
+
+The current panel helpers belong to the terminal/core zoning model, not to a
+widget layer.
+
+They provide explicit frame/header/content geometry that future UI layout code
+may choose to use, but they do not themselves define a widget system.
 
 ### 14.1 Intended responsibility split
 
