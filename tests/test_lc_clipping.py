@@ -1,7 +1,10 @@
 from lc_term import LC_ATTR_NONE
+from lc_geometry import _clip_rect_extents as _clip_rect_extents_geom, _clip_rect_shape as _clip_rect_shape_geom
 from lc_window import (
     _box_edges,
+    _clip_rect_extents_win,
     _clip_rect_shape,
+    _clip_rect_shape_win,
     _fill_rect_extents_clipped,
     _box_title_span,
     _interior_rect_shape,
@@ -328,3 +331,33 @@ def test_wdraw_panel_clips_like_box():
     assert _row_text(win, 1) == "   | t"
     assert _row_text(win, 2) == "   |.."
     assert _row_text(win, 3) == "   +--"
+
+
+def test_window_rect_shape_clip_delegates_to_geometry_helper():
+    win = lc_new(4, 5, 0, 0)
+
+    cases = [
+        (-1, 1, 4, 10),
+        (0, 0, 4, 5),
+        (3, 4, 3, 3),
+        (2, -3, 2, 2),
+        (2, 2, -1, 4),
+    ]
+
+    for y, x, h, w in cases:
+        assert _clip_rect_shape_win(win, y, x, h, w) == _clip_rect_shape_geom(win.maxy, win.maxx, y, x, h, w)
+
+
+def test_window_rect_extents_clip_delegates_to_geometry_helper():
+    win = lc_new(4, 5, 0, 0)
+
+    cases = [
+        (-1, -2, 2, 3),
+        (0, 0, 4, 5),
+        (1, 2, 5, 7),
+        (4, 0, 5, 4),
+        (2, 3, 2, 3),
+    ]
+
+    for y0, x0, y1, x1 in cases:
+        assert _clip_rect_extents_win(win, y0, x0, y1, x1) == _clip_rect_extents_geom(win.maxy, win.maxx, y0, x0, y1, x1)
