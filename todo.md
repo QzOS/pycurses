@@ -218,6 +218,27 @@ Once the immediate correctness gaps are closed, these are the next worthwhile st
 - [ ] Add tests for ESC timing behavior.
 - [ ] Decide how far function-key compatibility should go across terminals.
 
+## Recent test updates
+
+### `tests/test_geometry_and_panel.py`
+- Added `test_rect_splits_compose_for_dashboard_layout()` to cover a common
+  dashboard layout flow: split a full rect vertically into header/body, then
+  split the body horizontally into sidebar/main.
+- Added `test_rect_splits_clamp_partitions_for_layout_safety()` to cover layout
+  safety edge cases where partition sizes are out of range (e.g. `99` or `-5`)
+  and must be clamped.
+- Removed the trailing blank line at the end of the file.
+
+### `tests/test_lc_clipping.py`
+- Added imports for `_clip_rect_extents` and `_clip_rect_shape` aliases from
+  both `lc_geometry` and `lc_window` to support delegation checks.
+- Added `test_window_rect_shape_clip_delegates_to_geometry_helper()` to verify
+  `_clip_rect_shape` in `lc_window` delegates correctly to the geometry helper
+  across representative cases.
+- Added `test_window_rect_extents_clip_delegates_to_geometry_helper()` to
+  verify `_clip_rect_extents` in `lc_window` delegates correctly to the
+  geometry helper across representative cases.
+
 ### Backend discipline
 - [ ] Add backend contract tests where practical.
 - [ ] Keep Windows behavior byte-oriented and explicit.
@@ -266,4 +287,3 @@ For now, the most accurate description is:
 > A small, explicit, VT-oriented TUI core for Python with backend abstraction,
 > byte-oriented input decoding, dirty-region rendering, and a lightweight
 > shared-backing window model.
-
