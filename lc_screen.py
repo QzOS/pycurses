@@ -5,6 +5,7 @@ from typing import Optional, TYPE_CHECKING
 from lc_geometry import (
     lc_panel_content_rect as _lc_panel_content_rect,
     lc_panel_header_rect as _lc_panel_header_rect,
+    lc_panel_regions as _lc_panel_regions,
     lc_rect_split_horizontal as _lc_rect_split_horizontal,
     lc_rect_split_vertical as _lc_rect_split_vertical,
 )
@@ -359,6 +360,12 @@ def lc_get_panel_header_rect(y: int, x: int, height: int, width: int, header_hei
 
 def lc_get_panel_content_rect(y: int, x: int, height: int, width: int, header_height: int = 0) -> tuple[int, int, int, int]:
     return _lc_panel_content_rect(y, x, height, width, header_height)
+
+
+def lc_get_panel_regions(
+    y: int, x: int, height: int, width: int, header_height: int = 0
+) -> tuple[tuple[int, int, int, int], tuple[int, int, int, int]]:
+    return _lc_panel_regions(y, x, height, width, header_height)
 
 
 def lc_rect_split_vertical(

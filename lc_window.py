@@ -1172,13 +1172,25 @@ def lc_wdraw_panel(
     if rc != 0:
         return rc
 
-    if title is not None and title != "":
-        header_y, header_x, header_h, header_w = lc_panel_header_rect(y, x, height, width, header_height)
-        if header_h > 0 and header_w > 0:
+    header_y, header_x, header_h, header_w = lc_panel_header_rect(
+        y, x, height, width, header_height
+    )
+    if header_h > 0 and header_w > 0:
+        # A panel header is an interior layout region, not border decoration.
+        # Fill that band explicitly so draw semantics match the content-rect
+        # helpers and panel subwindow helpers.
+        rc = lc_wfill(win, header_y, header_x, header_h, header_w, ' ', frame_attr)
+        if rc != 0:
+            return rc
+
+        if title is not None and title != "":
             label = f" {title} "
             rc = _write_text_clipped(win, header_y, header_x, label[:header_w], frame_attr)
-        else:
-            rc = lc_wdraw_box_title(win, y, x, height, width, title, frame_attr)
+            if rc != 0:
+                return rc
+    elif title is not None and title != "":
+        # No realizable header band: fall back to box-border title decoration.
+        rc = lc_wdraw_box_title(win, y, x, height, width, title, frame_attr)
         if rc != 0:
             return rc
 
